@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gerador de Rotas Pesquisas Econômicas</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1115;
+    --panel:#171a21;
+    --panel-2:#1f232c;
+    --border:#2a2f3a;
+    --text:#eef0f4;
+    --muted:#9aa2b1;
+    --accent:#4f8cff;
+    --accent-2:#34d399;
+    --danger:#f87171;
+    --radius:14px;
+  }
+  html[data-theme="light"]{
+    --bg:#f3f5f9;
+    --panel:#ffffff;
+    --panel-2:#f0f2f6;
+    --border:#dde1e9;
+    --text:#1a1d24;
+    --muted:#667085;
+    --accent:#3b6fe0;
+    --accent-2:#0ea672;
+    --danger:#dc2626;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Segoe UI',Roboto,Arial,sans-serif;
+    background:radial-gradient(circle at top left,color-mix(in srgb, var(--bg) 90%, #fff 4%),var(--bg) 60%);
+    color:var(--text);
+    min-height:100vh;
+    transition:background .25s, color .25s;
+  }
+  .theme-toggle{
+    position:fixed;
+    top:18px;
+    right:18px;
+    width:42px;
+    height:42px;
+    border-radius:50%;
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    box-shadow:0 6px 18px rgba(0,0,0,.2);
+    z-index:100;
+    transition:.2s transform, .2s background;
+    font-size:1.15rem;
+  }
+  .theme-toggle:hover{transform:scale(1.06);}
+  .theme-toggle:active{transform:scale(.94);}
+
+  header{
+    padding:36px 24px 18px;
+    text-align:center;
+  }
+  header h1{
+    margin:0 0 8px;
+    font-size:1.9rem;
+    letter-spacing:.3px;
+  }
+  .wrap{
+    max-width:1000px;
+    margin:0 auto;
+    padding:0 20px 60px;
+  }
+  .card{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    padding:24px;
+    margin-bottom:22px;
+    box-shadow:0 10px 30px rgba(0,0,0,.12);
+    transition:background .25s, border-color .25s;
+  }
+  .card h2{
+    margin-top:0;
+    font-size:1.15rem;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .badge{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:24px;height:24px;
+    border-radius:50%;
+    background:var(--accent);
+    color:#fff;
+    font-size:.8rem;
+    font-weight:700;
+    flex-shrink:0;
+  }
+  .drop{
+    border:2px dashed var(--border);
+    border-radius:var(--radius);
+    padding:36px 20px;
+    text-align:center;
+    cursor:pointer;
+    transition:.2s border-color, .2s background;
+  }
+  .drop:hover, .drop.dragover{
+    border-color:var(--accent);
+    background:rgba(79,140,255,.06);
+  }
+  .drop input{display:none;}
+  .drop .icon{font-size:2.2rem;margin-bottom:8px;}
+  .drop .main{font-weight:600;}
+  .drop .sub{color:var(--muted);font-size:.85rem;margin-top:6px;}
+  #fileName{margin-top:14px;font-size:.9rem;color:var(--accent-2);display:none;}
+
+  select, input[type=text]{
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:9px 12px;
+    border-radius:8px;
+    font-size:.92rem;
+    width:100%;
+  }
+  label.field-label{
+    display:block;
+    font-size:.82rem;
+    color:var(--muted);
+    margin-bottom:6px;
+  }
+  .col-select-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+    margin-top:10px;
+  }
+  @media (max-width:640px){ .col-select-grid{grid-template-columns:1fr;} }
+
+  .stats{
+    display:flex;
+    gap:14px;
+    flex-wrap:wrap;
+    margin:16px 0 4px;
+  }
+  .stat{
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:10px 16px;
+    font-size:.85rem;
+    color:var(--muted);
+  }
+  .stat b{color:var(--text);font-size:1.05rem;display:block;}
+
+  table{
+    width:100%;
+    border-collapse:collapse;
+    margin-top:14px;
+    font-size:.85rem;
+  }
+  thead th{
+    text-align:left;
+    color:var(--muted);
+    font-weight:600;
+    border-bottom:1px solid var(--border);
+    padding:8px 10px;
+    position:sticky;top:0;
+    background:var(--panel);
+  }
+  tbody td{
+    padding:8px 10px;
+    border-bottom:1px solid var(--border);
+    vertical-align:top;
+  }
+  tbody tr:hover{background:rgba(127,127,127,.06);}
+  .row-empty td{color:var(--danger);font-style:italic;}
+  .table-scroll{
+    max-height:420px;
+    overflow:auto;
+    border:1px solid var(--border);
+    border-radius:10px;
+  }
+  a.gmap-link{
+    color:var(--accent);
+    text-decoration:none;
+    font-size:.8rem;
+  }
+  a.gmap-link:hover{text-decoration:underline;}
+
+  td.editable{
+    cursor:text;
+    border-radius:6px;
+    outline:none;
+    transition:.15s background, .15s box-shadow;
+  }
+  td.editable:hover{background:rgba(79,140,255,.08);}
+  td.editable:focus{
+    background:var(--panel-2);
+    box-shadow:0 0 0 2px var(--accent) inset;
+  }
+  td.editable.edited{box-shadow:0 0 0 1px var(--accent-2) inset;}
+
+  .actions{
+    display:flex;
+    gap:12px;
+    flex-wrap:wrap;
+    margin-top:18px;
+  }
+  button{
+    border:none;
+    border-radius:10px;
+    padding:12px 20px;
+    font-size:.92rem;
+    font-weight:600;
+    cursor:pointer;
+    transition:.15s transform, .15s opacity;
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+  }
+  button:active{transform:scale(.97);}
+  button:disabled{opacity:.4;cursor:not-allowed;}
+  .btn-primary{background:var(--accent);color:#fff;}
+  .btn-secondary{background:var(--panel-2);color:var(--text);border:1px solid var(--border);}
+  .btn-primary:hover:not(:disabled){opacity:.9;}
+  .btn-secondary:hover:not(:disabled){background:color-mix(in srgb, var(--panel-2) 80%, var(--text) 8%);}
+
+  .footer-note{
+    text-align:center;
+    color:var(--muted);
+    font-size:.78rem;
+    margin-top:30px;
+  }
+  .hidden{display:none !important;}
+  .toast{
+    position:fixed;
+    bottom:24px;
+    left:50%;
+    transform:translateX(-50%) translateY(20px);
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:12px 20px;
+    border-radius:10px;
+    font-size:.85rem;
+    opacity:0;
+    transition:.25s all;
+    pointer-events:none;
+    z-index:99;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="themeToggle" title="Alternar tema" aria-label="Alternar tema claro/escuro">🌙</button>
+
+<header>
+  <h1>🗺️ Gerador de Rotas Pesquisas Econômicas</h1>
+</header>
+
+<div class="wrap">
+
+  <!-- Etapa 1: Upload -->
+  <div class="card">
+    <h2><span class="badge">1</span> Importar planilha</h2>
+    <div class="drop" id="dropZone">
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+      <div class="icon">📄</div>
+      <div class="main">Clique aqui ou arraste sua planilha (.xlsx, .xls ou .csv)</div>
+      <div class="sub">A planilha deve conter uma coluna de endereço (ex.: "Endereço da UC")</div>
+    </div>
+    <div id="fileName"></div>
+  </div>
+
+  <!-- Etapa 2: Colunas -->
+  <div class="card hidden" id="cardColumns">
+    <h2><span class="badge">2</span> Organização feita por bairros</h2>
+    <p style="color:var(--muted);font-size:.88rem;margin-top:-6px;">
+      Escolha a coluna que define a posição do marcador e a coluna que dará nome a ele.
+    </p>
+    <div class="col-select-grid">
+      <div>
+        <label class="field-label">Endereço do marcador</label>
+        <select id="colAddress"></select>
+      </div>
+      <div>
+        <label class="field-label">Nome do Marcador</label>
+        <select id="colName"></select>
+      </div>
+    </div>
+
+    <div id="wrapBairroOrganizar" class="hidden" style="margin-top:18px;">
+      <p style="color:var(--muted);font-size:.88rem;margin:0;">Organizado automaticamente pelos bairros.</p>
+    </div>
+
+    <div id="wrapResponsavelAbordagem" class="hidden" style="margin-top:18px;">
+      <label class="field-label">Responsável pela Visita</label>
+      <select id="colResponsavelAbordagem"></select>
+
+      <div id="responsavelBairroWrap" class="hidden" style="margin-top:12px;">
+        <label class="field-label">Atribuir o bairro ao responsável pela visita</label>
+        <select id="colResponsavelBairro" multiple size="6"></select>
+        <p style="color:var(--muted);font-size:.78rem;margin:6px 0 0;">
+          Bairros em <strong style="color:var(--text);">destaque</strong> já têm um responsável atribuído (indicado entre parênteses).
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+          <button type="button" class="btn-secondary" id="btnAplicarResponsavel">Aplicar</button>
+          <button type="button" class="btn-secondary" id="btnRemoverAtribuicao">Remover atribuição</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Etapa 3: Preview -->
+  <div class="card hidden" id="cardPreview">
+    <h2><span class="badge">3</span> Revisar dados <span style="color:var(--muted);font-size:.8rem;font-weight:400;">É possível fazer edição no endereço para uma melhor localização.</span></h2>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th style="width:36px;">#</th><th id="thName">Nome do marcador</th><th id="thAddress">Endereço</th><th id="thVerify">Verificar</th></tr>
+        </thead>
+        <tbody id="previewBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Etapa 4: Exportar -->
+  <div class="card hidden" id="cardExport">
+    <h2><span class="badge">4</span> Gerar arquivo para o My Maps</h2>
+    <p style="color:var(--muted);font-size:.88rem;">
+      Baixe o CSV já formatado — com todas as colunas da planilha, para que apareçam como informações do marcador no My Maps.
+    </p>
+    <div class="actions">
+      <button class="btn-primary" id="btnDownloadCsv">⬇️ Baixar CSV para o My Maps</button>
+      <button class="btn-secondary" id="btnOpenMyMaps">🌐 My Maps</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer-note">Todo o processamento acontece no seu navegador — nenhuma planilha é enviada a servidores externos.</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  // --- Tema claro / escuro ---
+  const themeToggle = document.getElementById('themeToggle');
+  const htmlEl = document.documentElement;
+
+  function applyTheme(theme){
+    if(theme === 'light'){
+      htmlEl.setAttribute('data-theme','light');
+      themeToggle.textContent = '☀️';
+    } else {
+      htmlEl.removeAttribute('data-theme');
+      themeToggle.textContent = '🌙';
+    }
+  }
+
+  let savedTheme = 'dark';
+  try{ savedTheme = localStorage.getItem('gr-theme') || 'dark'; }catch(e){}
+  applyTheme(savedTheme);
+
+  themeToggle.addEventListener('click', ()=>{
+    const current = htmlEl.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    const next = current === 'light' ? 'dark' : 'light';
+    applyTheme(next);
+    try{ localStorage.setItem('gr-theme', next); }catch(e){}
+  });
+
+  // --- Importação e processamento da planilha ---
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const fileNameEl = document.getElementById('fileName');
+
+  const cardColumns = document.getElementById('cardColumns');
+  const cardPreview = document.getElementById('cardPreview');
+  const cardExport = document.getElementById('cardExport');
+
+  const selName = document.getElementById('colName');
+  const selAddress = document.getElementById('colAddress');
+  const thName = document.getElementById('thName');
+  const thAddress = document.getElementById('thAddress');
+
+  const wrapBairroOrganizar = document.getElementById('wrapBairroOrganizar');
+  const wrapResponsavelAbordagem = document.getElementById('wrapResponsavelAbordagem');
+  const colResponsavelAbordagem = document.getElementById('colResponsavelAbordagem');
+  const responsavelBairroWrap = document.getElementById('responsavelBairroWrap');
+  const colResponsavelBairro = document.getElementById('colResponsavelBairro');
+  const btnAplicarResponsavel = document.getElementById('btnAplicarResponsavel');
+  const btnRemoverAtribuicao = document.getElementById('btnRemoverAtribuicao');
+  const theadRow = document.querySelector('#cardPreview thead tr');
+
+  const previewBody = document.getElementById('previewBody');
+
+  const btnDownloadCsv = document.getElementById('btnDownloadCsv');
+  const btnOpenMyMaps = document.getElementById('btnOpenMyMaps');
+  const toast = document.getElementById('toast');
+
+  let headers = [];
+  let rows = [];       // array of objects {header: value}
+  let processed = [];  // {name, address, valid, rowIndex}
+  let bairroCol = null;
+  let responsavelCol = null;
+  const RESP_VISITA_COL = 'Responsável pela Visita';
+
+  // Candidate header names (normalized) para cada seletor
+  const ADDRESS_CANDIDATES = ['endereco da uc','endereco'];
+  const NAME_CANDIDATES = ['razao social','nome fantasia','cnpj'];
+  const BAIRRO_CANDIDATES = ['bairro da uc'];
+  const RESPONSAVEL_CANDIDATES = ['responsavel pela abordagem'];
+
+  function normalize(str){
+    return (str || '').toString()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g,'') // remove acentos
+      .toLowerCase().trim();
+  }
+
+  function showToast(msg){
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(()=>toast.classList.remove('show'), 2200);
+  }
+
+  // --- Drag & drop / file input ---
+  dropZone.addEventListener('click', ()=>fileInput.click());
+  dropZone.addEventListener('dragover', e=>{e.preventDefault(); dropZone.classList.add('dragover');});
+  dropZone.addEventListener('dragleave', ()=>dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e=>{
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', e=>{
+    if(e.target.files.length) handleFile(e.target.files[0]);
+  });
+
+  function handleFile(file){
+    fileNameEl.style.display = 'block';
+    fileNameEl.textContent = '✅ Arquivo carregado: ' + file.name;
+
+    const reader = new FileReader();
+    reader.onload = function(e){
+      try{
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, {type:'array'});
+        const firstSheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[firstSheetName];
+        const json = XLSX.utils.sheet_to_json(sheet, {defval:'', raw:false});
+        if(!json.length){
+          showToast('A planilha parece estar vazia.');
+          return;
+        }
+        headers = Object.keys(json[0]);
+        rows = json;
+        populateColumnSelectors();
+        populateExtraSelectors();
+        cardColumns.classList.remove('hidden');
+        processAndRender();
+      }catch(err){
+        console.error(err);
+        showToast('Erro ao ler o arquivo. Verifique o formato.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function filterHeadersByCandidates(candidates){
+    const matches = headers.filter(h => candidates.includes(normalize(h)));
+    return matches.length ? matches : headers.slice(); // fallback: mostra todas se nao encontrar
+  }
+
+  function fillSelect(select, options, preferred){
+    select.innerHTML = '';
+    options.forEach(h=>{
+      const o = document.createElement('option');
+      o.value = h; o.textContent = h;
+      select.appendChild(o);
+    });
+    if(preferred && options.includes(preferred)) select.value = preferred;
+  }
+
+  function populateColumnSelectors(){
+    const addressOptions = filterHeadersByCandidates(ADDRESS_CANDIDATES);
+    const nameOptions = filterHeadersByCandidates(NAME_CANDIDATES);
+
+    fillSelect(selAddress, addressOptions, addressOptions[0]);
+    fillSelect(selName, nameOptions, nameOptions[0]);
+  }
+
+  selName.addEventListener('change', processAndRender);
+  selAddress.addEventListener('change', processAndRender);
+
+  // --- Colunas extras: "Bairro da UC" e "Responsável pela Abordagem" ---
+  function getUniqueColumnValues(col){
+    if(!col) return [];
+    const set = new Set();
+    rows.forEach(r=>{
+      const v = (r[col] ?? '').toString().trim();
+      if(v) set.add(v);
+    });
+    return Array.from(set).sort((a,b)=>a.localeCompare(b,'pt-BR',{sensitivity:'base'}));
+  }
+
+  function fillSelectWithPlaceholder(select, options, placeholderText){
+    select.innerHTML = '';
+    const ph = document.createElement('option');
+    ph.value = '';
+    ph.textContent = placeholderText;
+    select.appendChild(ph);
+    options.forEach(v=>{
+      const o = document.createElement('option');
+      o.value = v; o.textContent = v;
+      select.appendChild(o);
+    });
+  }
+
+  function findColumnByCandidates(candidates){
+    return headers.find(h => candidates.includes(normalize(h))) || null;
+  }
+
+  function setResponsavelColumnVisible(visible){
+    let th = document.getElementById('thResponsavelVisita');
+    if(visible && !th){
+      th = document.createElement('th');
+      th.id = 'thResponsavelVisita';
+      th.textContent = RESP_VISITA_COL;
+      theadRow.appendChild(th);
+    } else if(!visible && th){
+      th.remove();
+    }
+  }
+
+  function setBairroColumnVisible(visible){
+    let th = document.getElementById('thBairro');
+    if(visible && !th){
+      th = document.createElement('th');
+      th.id = 'thBairro';
+      th.textContent = 'Bairro';
+      const thVerify = document.getElementById('thVerify');
+      theadRow.insertBefore(th, thVerify);
+    } else if(!visible && th){
+      th.remove();
+    }
+  }
+
+  function populateExtraSelectors(){
+    bairroCol = findColumnByCandidates(BAIRRO_CANDIDATES);
+    responsavelCol = findColumnByCandidates(RESPONSAVEL_CANDIDATES);
+
+    if(bairroCol){
+      wrapBairroOrganizar.classList.remove('hidden');
+    } else {
+      wrapBairroOrganizar.classList.add('hidden');
+    }
+
+    if(responsavelCol){
+      wrapResponsavelAbordagem.classList.remove('hidden');
+      fillSelectWithPlaceholder(colResponsavelAbordagem, getUniqueColumnValues(responsavelCol), 'Selecione um responsável...');
+    } else {
+      wrapResponsavelAbordagem.classList.add('hidden');
+      colResponsavelAbordagem.innerHTML = '';
+    }
+
+    responsavelBairroWrap.classList.add('hidden');
+    colResponsavelBairro.innerHTML = '';
+    setResponsavelColumnVisible(!!responsavelCol);
+    setBairroColumnVisible(!!bairroCol);
+  }
+
+  function populateResponsavelBairroSelect(){
+    if(!bairroCol){
+      colResponsavelBairro.innerHTML = '';
+      return;
+    }
+    const bairros = getUniqueColumnValues(bairroCol);
+
+    // Mapeia cada bairro ao(s) responsável(is) já atribuído(s), se houver
+    const atribuidoPor = new Map();
+    rows.forEach(r=>{
+      const bairroVal = (r[bairroCol] ?? '').toString().trim();
+      if(!bairroVal) return;
+      const resp = (r[RESP_VISITA_COL] ?? '').toString().trim();
+      if(resp){
+        if(!atribuidoPor.has(bairroVal)) atribuidoPor.set(bairroVal, new Set());
+        atribuidoPor.get(bairroVal).add(resp);
+      }
+    });
+
+    const selecionadosAntes = new Set(Array.from(colResponsavelBairro.selectedOptions).map(o=>o.value));
+
+    colResponsavelBairro.innerHTML = '';
+    bairros.forEach(bairro=>{
+      const o = document.createElement('option');
+      o.value = bairro;
+      const nomes = atribuidoPor.get(bairro);
+      if(nomes && nomes.size > 0){
+        o.textContent = bairro + '  (' + Array.from(nomes).join(', ') + ')';
+        o.style.fontWeight = '700';
+        o.style.backgroundColor = 'color-mix(in srgb, var(--accent) 18%, transparent)';
+      } else {
+        o.textContent = bairro;
+      }
+      if(selecionadosAntes.has(bairro)) o.selected = true;
+      colResponsavelBairro.appendChild(o);
+    });
+  }
+
+  colResponsavelAbordagem.addEventListener('change', ()=>{
+    const val = colResponsavelAbordagem.value;
+    if(!val){
+      responsavelBairroWrap.classList.add('hidden');
+      return;
+    }
+    if(!bairroCol){
+      showToast('Coluna "Bairro da UC" não encontrada na planilha.');
+      responsavelBairroWrap.classList.add('hidden');
+      return;
+    }
+    populateResponsavelBairroSelect();
+    responsavelBairroWrap.classList.remove('hidden');
+  });
+
+  btnAplicarResponsavel.addEventListener('click', ()=>{
+    const respName = colResponsavelAbordagem.value;
+    const bairrosSelecionados = Array.from(colResponsavelBairro.selectedOptions).map(o=>o.value).filter(Boolean);
+    if(!respName || bairrosSelecionados.length === 0 || !bairroCol){
+      showToast('Selecione o responsável e ao menos um bairro.');
+      return;
+    }
+
+    // Verifica se algum dos bairros selecionados já tem um responsável diferente atribuído
+    const conflitos = new Map(); // bairro -> Set com nome(s) já atribuído(s)
+    rows.forEach(r=>{
+      const val = (r[bairroCol] ?? '').toString().trim();
+      if(bairrosSelecionados.includes(val)){
+        const atual = (r[RESP_VISITA_COL] ?? '').toString().trim();
+        if(atual && atual !== respName){
+          if(!conflitos.has(val)) conflitos.set(val, new Set());
+          conflitos.get(val).add(atual);
+        }
+      }
+    });
+
+    if(conflitos.size > 0){
+      const detalhes = Array.from(conflitos.entries())
+        .map(([bairro, nomes]) => '"' + bairro + '" (atualmente: ' + Array.from(nomes).join(', ') + ')')
+        .join('\n');
+      const confirmar = window.confirm(
+        'Os seguintes bairros já têm responsável atribuído:\n\n' + detalhes +
+        '\n\nDeseja substituir por "' + respName + '"?'
+      );
+      if(!confirmar) return;
+    }
+
+    let count = 0;
+    rows.forEach(r=>{
+      const val = (r[bairroCol] ?? '').toString().trim();
+      if(bairrosSelecionados.includes(val)){
+        r[RESP_VISITA_COL] = respName;
+        count++;
+      }
+    });
+
+    const listaBairros = bairrosSelecionados.join(', ');
+    showToast('"' + respName + '" atribuído a ' + count + ' endereço(s) do(s) bairro(s): ' + listaBairros + '.');
+    populateResponsavelBairroSelect();
+    processAndRender();
+  });
+
+  btnRemoverAtribuicao.addEventListener('click', ()=>{
+    const bairrosSelecionados = Array.from(colResponsavelBairro.selectedOptions).map(o=>o.value).filter(Boolean);
+    if(bairrosSelecionados.length === 0 || !bairroCol){
+      showToast('Selecione ao menos um bairro para remover a atribuição.');
+      return;
+    }
+
+    let count = 0;
+    rows.forEach(r=>{
+      const val = (r[bairroCol] ?? '').toString().trim();
+      if(bairrosSelecionados.includes(val) && (r[RESP_VISITA_COL] ?? '').toString().trim()){
+        delete r[RESP_VISITA_COL];
+        count++;
+      }
+    });
+
+    const listaBairros = bairrosSelecionados.join(', ');
+    if(count === 0){
+      showToast('Nenhum responsável atribuído nos bairros selecionados.');
+    } else {
+      showToast('Atribuição removida de ' + count + ' endereço(s) do(s) bairro(s): ' + listaBairros + '.');
+    }
+    populateResponsavelBairroSelect();
+    processAndRender();
+  });
+
+  function processAndRender(){
+    const nameCol = selName.value;
+    const addrCol = selAddress.value;
+    if(!nameCol || !addrCol) return;
+
+    thName.textContent = nameCol;
+    thAddress.textContent = addrCol;
+
+    processed = rows.map((r, idx)=>{
+      const name = (r[nameCol] ?? '').toString().trim();
+      const address = (r[addrCol] ?? '').toString().trim();
+      return {name, address, valid: !!(name && address), rowIndex: idx};
+    });
+
+    if(bairroCol){
+      processed.sort((a,b)=>{
+        const ba = (rows[a.rowIndex][bairroCol] ?? '').toString().trim();
+        const bb = (rows[b.rowIndex][bairroCol] ?? '').toString().trim();
+        return ba.localeCompare(bb, 'pt-BR', {sensitivity:'base'});
+      });
+    }
+
+    const validCount = processed.filter(p=>p.valid).length;
+
+    previewBody.innerHTML = '';
+    processed.forEach((p, i)=>{
+      const tr = document.createElement('tr');
+      if(!p.valid) tr.classList.add('row-empty');
+
+      const tdIndex = document.createElement('td');
+      tdIndex.textContent = i + 1;
+
+      const tdName = document.createElement('td');
+      tdName.className = 'editable';
+      tdName.contentEditable = 'true';
+      tdName.spellcheck = false;
+      tdName.textContent = p.name || '';
+
+      const tdAddress = document.createElement('td');
+      tdAddress.className = 'editable';
+      tdAddress.contentEditable = 'true';
+      tdAddress.spellcheck = false;
+      tdAddress.textContent = p.address || '';
+
+      const tdVerify = document.createElement('td');
+
+      function renderVerifyLink(){
+        tdVerify.innerHTML = '';
+        if(p.address){
+          const link = document.createElement('a');
+          link.className = 'gmap-link';
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(p.address);
+          link.textContent = 'Ver no Maps ↗';
+          tdVerify.appendChild(link);
+        } else {
+          tdVerify.textContent = '—';
+        }
+      }
+      renderVerifyLink();
+
+      function commitEdit(){
+        const newName = tdName.textContent.trim();
+        const newAddress = tdAddress.textContent.trim();
+        const nameCol = selName.value;
+        const addrCol = selAddress.value;
+
+        if(newName !== p.name || newAddress !== p.address){
+          p.name = newName;
+          p.address = newAddress;
+          rows[p.rowIndex][nameCol] = newName;
+          rows[p.rowIndex][addrCol] = newAddress;
+          tdName.classList.add('edited');
+          tdAddress.classList.add('edited');
+          renderVerifyLink();
+        }
+
+        p.valid = !!(p.name && p.address);
+        tr.classList.toggle('row-empty', !p.valid);
+        updateStats();
+      }
+
+      tdName.addEventListener('blur', commitEdit);
+      tdAddress.addEventListener('blur', commitEdit);
+      tdName.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); tdName.blur(); } });
+      tdAddress.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); tdAddress.blur(); } });
+
+      tr.appendChild(tdIndex);
+      tr.appendChild(tdName);
+      tr.appendChild(tdAddress);
+
+      if(bairroCol){
+        const tdBairro = document.createElement('td');
+        tdBairro.className = 'editable';
+        tdBairro.contentEditable = 'true';
+        tdBairro.spellcheck = false;
+        tdBairro.textContent = (rows[p.rowIndex][bairroCol] ?? '').toString().trim();
+
+        function commitBairroEdit(){
+          const newBairro = tdBairro.textContent.trim();
+          const oldBairro = (rows[p.rowIndex][bairroCol] ?? '').toString().trim();
+          if(newBairro !== oldBairro){
+            rows[p.rowIndex][bairroCol] = newBairro;
+            tdBairro.classList.add('edited');
+            if(!responsavelBairroWrap.classList.contains('hidden')){
+              populateResponsavelBairroSelect();
+            }
+            processAndRender();
+          }
+        }
+        tdBairro.addEventListener('blur', commitBairroEdit);
+        tdBairro.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); tdBairro.blur(); } });
+
+        tr.appendChild(tdBairro);
+      }
+
+      tr.appendChild(tdVerify);
+
+      if(responsavelCol){
+        const tdResp = document.createElement('td');
+        tdResp.className = 'editable';
+        tdResp.contentEditable = 'true';
+        tdResp.spellcheck = false;
+        tdResp.textContent = rows[p.rowIndex][RESP_VISITA_COL] || '';
+
+        function commitRespEdit(){
+          const newResp = tdResp.textContent.trim();
+          const oldResp = (rows[p.rowIndex][RESP_VISITA_COL] ?? '').toString().trim();
+          if(newResp !== oldResp){
+            if(newResp){
+              rows[p.rowIndex][RESP_VISITA_COL] = newResp;
+            } else {
+              delete rows[p.rowIndex][RESP_VISITA_COL];
+            }
+            tdResp.classList.add('edited');
+            if(!responsavelBairroWrap.classList.contains('hidden')){
+              populateResponsavelBairroSelect();
+            }
+          }
+        }
+        tdResp.addEventListener('blur', commitRespEdit);
+        tdResp.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); tdResp.blur(); } });
+
+        tr.appendChild(tdResp);
+      }
+
+      previewBody.appendChild(tr);
+    });
+
+    cardPreview.classList.remove('hidden');
+    cardExport.classList.remove('hidden');
+    btnDownloadCsv.disabled = validCount === 0;
+  }
+
+  function updateStats(){
+    const validCount = processed.filter(p=>p.valid).length;
+    btnDownloadCsv.disabled = validCount === 0;
+  }
+
+  function escapeCsvField(field){
+    const f = (field ?? '').toString().replaceAll('"','""');
+    return /[",\n;]/.test(f) ? `"${f}"` : f;
+  }
+
+  // --- Export CSV para o My Maps: mantém TODAS as colunas originais, ---
+  // --- assim todos os dados aparecem no balão do marcador ---
+  function buildCsv(){
+    const validRows = processed.filter(p=>p.valid).map(p=>rows[p.rowIndex]);
+    const exportHeaders = headers.slice();
+    if(responsavelCol) exportHeaders.push(RESP_VISITA_COL);
+
+    const rowsOut = [exportHeaders];
+    validRows.forEach(r=>{
+      const rowArr = headers.map(h => r[h] ?? '');
+      if(responsavelCol) rowArr.push(r[RESP_VISITA_COL] ?? '');
+      rowsOut.push(rowArr);
+    });
+    const csvContent = rowsOut.map(r => r.map(escapeCsvField).join(',')).join('\r\n');
+    return '\uFEFF' + csvContent; // BOM para acentuação correta
+  }
+
+  btnDownloadCsv.addEventListener('click', ()=>{
+    if(responsavelCol){
+      const semResponsavel = processed.filter(p =>
+        p.valid && !(rows[p.rowIndex][RESP_VISITA_COL] ?? '').toString().trim()
+      ).length;
+      if(semResponsavel > 0){
+        const continuar = window.confirm(
+          semResponsavel + ' endereço(s) válido(s) ainda não têm "Responsável pela Visita" definido.\n\nDeseja baixar o CSV assim mesmo?'
+        );
+        if(!continuar) return;
+      }
+    }
+
+    const csv = buildCsv();
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'rotas_para_mymaps.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('CSV baixado! Agora importe no Google My Maps.');
+  });
+
+  btnOpenMyMaps.addEventListener('click', ()=>{
+    window.open('https://www.google.com/maps/d/', '_blank');
+  });
+})();
+</script>
+
+</body>
+</html>

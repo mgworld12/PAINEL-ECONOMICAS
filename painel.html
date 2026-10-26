@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="description" content="Painel de Consultas Empresariais — IBGE SES/RJ Agência Jacarepaguá">
+<meta name="author" content="IBGE — SES/RJ">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style id="guarda-css">html{visibility:hidden}</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(async function () {
+  const css = document.getElementById('guarda-css');
+
+  // Só exige login quando está no GitHub Pages
+  if (!location.hostname.endsWith('github.io')) { css.remove(); return; }
+
+  const db = supabase.createClient(
+    'https://jvjfpxrknggeodjgamyu.supabase.co',
+    'sb_publishable_yxHF_N1gjdGoHMEoM5GF2w_QVMzzMF0'
+  );
+  window.painelDb = db; // reaproveitado pelo painel.js (cronograma compartilhado)
+
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) { location.replace('index.html'); return; }
+
+  const { data: perfil } = await db.from('perfis')
+    .select('aprovado').eq('id', session.user.id).single();
+  if (!perfil || !perfil.aprovado) {
+    await db.auth.signOut();
+    location.replace('index.html');
+    return;
+  }
+
+  css.remove();
+})();
+</script>
+<title>Painel de Consultas Empresariais</title>
+<link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+<link rel="stylesheet" href="painel.css?v=8">
+</head>
+<body>
+<noscript>
+<div style="background:#c0392b;color:#fff;padding:20px;text-align:center;font-family:Segoe UI,Arial,sans-serif;font-size:15px;font-weight:600;">
+⚠️ Este painel requer JavaScript habilitado para funcionar. Por favor, ative o JavaScript no seu navegador.
+</div>
+</noscript>
+<div id="toastWrap" class="toast-wrap" aria-live="polite"></div>
+<div class="container">
+<header class="header">
+<button type="button" class="btn-tema" onclick="alternarTema()" title="Alternar tema claro/escuro" aria-label="Alternar tema claro/escuro"></button>
+<div class="logo-ibge">
+<img class="logo-ibge-img" src="logo-ibge.png" alt="IBGE" style="width:100%;height:auto;display:block;">
+</div>
+</header>
+<div class="acoes-cnpj barra-info-planilha">
+<div class="barra-acoes-cnpj-topo">
+<button type="button" class="btn-importar-planilha" onclick="document.getElementById('arquivoExcel').click()" aria-label="Importar planilha de CNPJs">📊 Importar Planilha</button>
+<input type="text" id="cnpjBuscaRapida" class="input-busca-cnpj" placeholder="00000000/0001-00" inputmode="numeric" maxlength="18" oninput="formatarCNPJ(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();pesquisarCNPJRapido();}" aria-label="Digite o CNPJ para pesquisar">
+<button type="button" class="btn-pesquisar-cnpj-rapido" onclick="pesquisarCNPJRapido()" aria-label="Pesquisar CNPJ digitado">🔍 Pesquisar</button>
+<span id="tituloListaCNPJs" class="info-planilha" style="display:none;"></span>
+<div id="filtroCnpjWrap" class="filtro-cnpj-wrap" style="display:none;">
+<select id="filtroTipoCNPJ" class="filtro-cnpj-select" onchange="onFiltroTipoCNPJChange()" aria-label="Filtrar CNPJs por">
+<option value="">Filtrar por</option>
+<option value="status">STATUS DA EMPRESA</option>
+<option value="pesquisa">PESQUISA</option>
+<option value="responsavel">RESP. ABORDAGEM</option>
+</select>
+<select id="filtroValorCNPJ" class="filtro-cnpj-select" style="display:none;" onchange="aplicarFiltroCNPJs()" aria-label="Selecionar valor do filtro"></select>
+<select id="filtroStatusSecCNPJ" class="filtro-cnpj-select" style="display:none;" onchange="aplicarFiltroStatusSecundarioCNPJ()" aria-label="Separar por Status da Empresa"></select>
+<span id="contagemFiltroCNPJ" class="filtro-cnpj-contagem"></span>
+<span id="percentualFiltroCNPJ" class="filtro-cnpj-contagem filtro-cnpj-percentual" style="display:none;"></span>
+</div>
+<input type="file" id="arquivoExcel" accept=".xlsx,.xls,.csv" style="display:none" aria-label="Selecionar arquivo de planilha (.xlsx, .xls ou .csv)" onchange="importarPlanilha(event)">
+</div>
+<span class="relogio-painel" id="relogioPainel" aria-live="polite"></span>
+</div>
+<div id="listaPlanilha" class="painel-info" style="display:none; margin-top:14px;">
+<ul id="listaCNPJs" class="grade-cnpjs"></ul>
+<div id="paginacaoCNPJs" class="paginacao-cnpjs" style="display:none;"></div>
+<div style="margin-top:8px;display:flex;justify-content:flex-end;">
+<button type="button" class="btn-limpar-planilha" onclick="limparPlanilhaImportada()" aria-label="Limpar todos os CNPJs importados">🗑️ Limpar Planilha</button>
+</div>
+</div>
+<div id="painelEmpresa" class="painel-info">
+<strong>Dados da Empresa</strong>
+<div id="dadosEmpresa">
+<div class="campo-dado">Clique em um CNPJ importado da planilha.</div>
+</div>
+</div>
+<div id="painelHistorico" style="display:none;margin-top:10px;padding:12px 15px;background:var(--cor-fundo-card);border-radius:var(--radius);box-shadow:0 2px 10px var(--cor-shadow);">
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+<strong style="font-size:13px;font-weight:700;color:var(--cor-texto-secundario);text-transform:uppercase;letter-spacing:0.4px;">🕐 Histórico da sessão</strong>
+<button type="button" onclick="limparHistorico()" style="padding:3px 10px;border:1px solid var(--cor-erro);border-radius:5px;background:transparent;color:var(--cor-erro);font-size:11px;font-weight:600;cursor:pointer;">Limpar</button>
+</div>
+<ul id="listaHistorico" style="list-style:none;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:4px;"></ul>
+</div>
+<div class="ficha-cabecalho">
+<h3 class="titulo-secao" style="margin:0;">Ficha Empresa</h3>
+</div>
+<div class="card form-empresa" id="fichaEmpresa">
+<div class="form-row"><div class="form-label">RAZÃO SOCIAL:</div><div class="form-field"><input type="text" id="fe-razao-social" oninput="atualizarTextoMensagem()" aria-label="Razão Social da empresa"></div></div>
+<div class="form-row"><div class="form-label">CNPJ:</div><div class="form-field"><input type="text" id="fe-cnpj" maxlength="18" oninput="formatarCNPJ(this); atualizarTextoMensagem()" onblur="validarFormatoCampo(this,'cnpj')" aria-label="CNPJ da empresa"></div></div>
+<div class="form-row"><div class="form-label">LOGRADOURO:</div><div class="form-field"><input type="text" id="fe-logradouro" aria-label="Logradouro"></div></div>
+<div class="form-row"><div class="form-label">BAIRRO:</div><div class="form-field"><input type="text" id="fe-bairro" aria-label="Bairro"></div></div>
+<div class="form-row"><div class="form-label">MUNICÍPIO:</div><div class="form-field"><input type="text" id="fe-municipio" value="RIO DE JANEIRO" aria-label="Município"></div></div>
+<div class="form-row"><div class="form-label">CEP:</div><div class="form-field"><input type="text" id="fe-cep" maxlength="9" placeholder="00000-000" oninput="ndFormatarCEP(this)" aria-label="CEP"></div></div>
+<div class="form-row"><div class="form-label">CONTATO EMPRESA:</div><div class="form-field"><input type="text" id="fe-contato" oninput="atualizarTextoMensagem()" aria-label="Contato na empresa"></div></div>
+<div class="form-row"><div class="form-label">TELEFONE EMPRESA:</div><div class="form-field"><input type="text" id="fe-telefone" placeholder="(xx) xxxxx-xxxx / (xx) xxxx-xxxx" oninput="formatarTelefoneMultiplo(this)" onblur="validarFormatoCampo(this,'telefone')" aria-label="Telefone da empresa. Para mais de um número, separe com uma barra ( / )"></div></div>
+<div class="form-row"><div class="form-label">E-MAIL EMPRESA:</div><div class="form-field"><input type="text" id="fe-email" onblur="this.value = this.value.toLowerCase(); validarFormatoCampo(this,'email')" aria-label="E-mail da empresa"></div></div>
+<div class="form-row destaque-laranja" id="row-atividade"><div class="form-label">Atividade Predominante da Empresa (maior receita) em 2025<span style="color:#cc0000;font-weight:bold;">?</span></div><div class="form-field"><input type="text" id="fe-atividade" aria-label="Atividade predominante"></div></div>
+<div class="form-row destaque-laranja"><div class="form-label">A Empresa teve atividade em 2025<span style="color:#cc0000;font-weight:bold;">?</span></div><div class="form-field radio-field"><div class="radio-group radio-group-texto" aria-label="Selecionar se a empresa teve atividade em 2025">SIM&nbsp;(&nbsp;&nbsp;&nbsp;&nbsp;)&nbsp;&nbsp;&nbsp;NÃO&nbsp;(&nbsp;&nbsp;&nbsp;&nbsp;)</div></div></div>
+<div class="form-row"><div class="form-label"><em>CONTABILIDADE</em>&nbsp;<strong>PRÓPRIA</strong>&nbsp;OU&nbsp;<strong>TERCEIRIZADA</strong>?</div><div class="form-field radio-field"><div class="radio-group radio-group-texto" id="fe-contab-tipo-display" aria-label="Tipo de contabilidade">PRÓPRIA&nbsp;(&nbsp;&nbsp;&nbsp;&nbsp;)&nbsp;&nbsp;&nbsp;TERCEIRIZADA&nbsp;(&nbsp;&nbsp;&nbsp;&nbsp;)</div></div></div>
+<div class="form-row"><div class="form-label">RAZÃO SOCIAL&nbsp;<em>CONTABILIDADE</em>:</div><div class="form-field"><input type="text" id="fe-contab-razao" class="campo-pendente" value="Pendente de atualização" oninput="atualizarEstadoCampoPendente(this)" aria-label="Razão Social da contabilidade"></div></div>
+<div class="form-row"><div class="form-label">CNPJ&nbsp;<em>CONTABILIDADE</em>:</div><div class="form-field"><input type="text" id="fe-contab-cnpj" class="campo-pendente" value="Pendente de atualização" maxlength="18" oninput="formatarCNPJ(this); atualizarEstadoCampoPendente(this); atualizarContabTipo()" onblur="validarFormatoCampo(this,'cnpj'); atualizarContabTipo()" aria-label="CNPJ da contabilidade"></div></div>
+<div class="form-row"><div class="form-label">CONTATO NA&nbsp;<em>CONTABILIDADE</em>:</div><div class="form-field"><input type="text" id="fe-contab-contato" class="campo-pendente" value="Pendente de atualização" oninput="atualizarEstadoCampoPendente(this); atualizarTextoMensagem()" aria-label="Contato na contabilidade"></div></div>
+<div class="form-row"><div class="form-label">TELEFONE DA&nbsp;<em>CONTABILIDADE</em>:</div><div class="form-field"><input type="text" id="fe-contab-telefone" class="campo-pendente" value="Pendente de atualização" placeholder="(xx) xxxx-xxxx / (xx) xxxxx-xxxx" oninput="atualizarEstadoCampoPendente(this); formatarTelefoneMultiplo(this)" onblur="validarFormatoCampo(this,'telefone')" aria-label="Telefone da contabilidade. Para mais de um número, separe com uma barra ( / )"></div></div>
+<div class="form-row"><div class="form-label">E-MAIL DA&nbsp;<em>CONTABILIDADE</em>:</div><div class="form-field"><input type="text" id="fe-contab-email" class="campo-pendente" value="Pendente de atualização" oninput="atualizarEstadoCampoPendente(this)" onblur="this.value = this.value.toLowerCase(); validarFormatoCampo(this,'email')" aria-label="E-mail da contabilidade"></div></div>
+</div>
+<div style="margin-top:10px; display:flex; justify-content:flex-end; gap:8px;">
+<button type="button" class="btn-limpar-planilha" onclick="mostrarConfirm('Tem certeza que deseja limpar a Ficha Empresa? Esta ação não pode ser desfeita.', function(){ limparFicha(); mostrarToast('Ficha limpa com sucesso.', 'sucesso'); })" aria-label="Limpar ficha da empresa">🧹 Limpar</button>
+<button type="button" class="btn-copiar-ficha" onclick="copiarFichaEmpresa()" aria-label="Copiar ficha da empresa">📋 Copiar Ficha</button>
+</div>
+<h3 class="titulo-secao">Modelos de Mensagem</h3>
+<div class="msg-bloco">
+<div class="msg-botoes">
+<button type="button" data-tipo="ABORDAGEM" onclick="selecionarTipoMensagem('ABORDAGEM')" aria-label="Gerar mensagem de abordagem">ABORDAGEM</button>
+<button type="button" data-tipo="RENEGOCIACAO" onclick="selecionarTipoMensagem('RENEGOCIACAO')" aria-label="Gerar mensagem de renegociação">RENEGOCIAÇÃO</button>
+<button type="button" data-tipo="WPP" onclick="selecionarTipoMensagem('WPP')" aria-label="Gerar mensagem para WhatsApp - Contabilidade">WPP CONTABILIDADE</button>
+<button type="button" data-tipo="WPP_EMPRESA" onclick="selecionarTipoMensagem('WPP_EMPRESA')" aria-label="Gerar mensagem para WhatsApp - Empresa">WPP EMPRESA</button>
+</div>
+<div id="msg-saida-wrap" class="msg-saida-wrap">
+<div id="msg-abordagem-campos" class="msg-wpp-campos" style="display:none;"></div>
+<div id="msg-wpp-campos" class="msg-wpp-campos" style="display:none;"></div>
+<div id="msg-wpp-empresa-campos" class="msg-wpp-campos" style="display:none;"></div>
+<div id="msg-renegociacao-campos" class="msg-wpp-campos" style="display:none;"></div>
+<div id="msg-servidor-global" class="msg-wpp-campos">
+<div class="msg-wpp-linha"><label for="msg-global-servidor">Servidor:</label><input type="text" id="msg-global-servidor" oninput="atualizarTextoMensagem()" aria-label="Nome do servidor"></div>
+<div class="msg-wpp-linha"><label for="msg-global-telefone">Telefone:</label><input type="text" id="msg-global-telefone" oninput="atualizarTextoMensagem()" onblur="validarFormatoCampo(this,'telefone')" aria-label="Telefone do servidor"></div>
+</div>
+<div id="msg-datas-bloco" class="msg-datas" style="display:none;">
+<div class="msg-data-linha"><label for="msg-data1">Data 1:</label><input type="date" id="msg-data1" oninput="atualizarTextoMensagem()" aria-label="Primeira data para renegociação"></div>
+<div class="msg-data-linha"><label for="msg-data2">Data 2:</label><input type="date" id="msg-data2" oninput="atualizarTextoMensagem()" aria-label="Segunda data para renegociação"></div>
+</div>
+<pre id="msg-saida" class="msg-saida" aria-label="Mensagem gerada"></pre>
+<div class="msg-acoes">
+<button type="button" onclick="copiarMensagem()" aria-label="Copiar mensagem gerada">📋 Copiar Mensagem</button>
+<button type="button" onclick="atualizarTextoMensagem()" aria-label="Atualizar mensagem">🔄 Atualizar</button>
+</div>
+</div>
+</div>
+<div class="duo-quadros" style="grid-template-columns: 1fr;">
+<div class="quadro-duo">
+<h3 class="titulo-secao" style="margin-top:0;">Consulta automática por CNPJ e Site da Empresa</h3>
+<div class="linha-cnpj-site">
+<div class="card card-cnpj">
+<label for="cnpj">CNPJ</label>
+<input type="text" id="cnpj" maxlength="18" placeholder="00000000/0001-00" inputmode="numeric" oninput="formatarCNPJ(this)" aria-label="Digite o CNPJ para consulta">
+<div class="menu-consultar-cnpj" id="menuConsultarCnpj">
+<button type="button" id="btnConsultarCnpj" class="btn-consultar" onclick="alternarMenuConsultarCnpj(event)" aria-haspopup="true" aria-expanded="false" title="Consultar o CNPJ nos sites">🔎 Consultar ▾</button>
+<div class="menu-consultar-lista" id="listaConsultarCnpj" role="menu" hidden>
+<button type="button" role="menuitem" data-acao="cnpjAberto">CNPJ Aberto</button>
+<button type="button" role="menuitem" data-acao="cnpja">CNPJá</button>
+<button type="button" role="menuitem" data-acao="cnpjcheck">CNPJ Check</button>
+<button type="button" role="menuitem" data-acao="cnpjbiz">CNPJ Biz</button>
+<button type="button" role="menuitem" data-acao="econodata">Econodata</button>
+<button type="button" role="menuitem" data-acao="raizlegal">Raiz Legal</button>
+<hr>
+<button type="button" role="menuitem" data-acao="todos">🔎 Abrir todos</button>
+<button type="button" role="menuitem" data-acao="copiar">📋 Copiar CNPJ</button>
+</div>
+</div>
+</div>
+<div class="card card-cnpj">
+<label for="site">Site <span style="font-size:12px;font-weight:600;color:#555;">(apenas domínios .br)</span></label>
+<input type="text" id="site" class="campo-site" placeholder="empresa.com.br ou www.empresa.com.br" aria-label="Digite o domínio da empresa">
+<button type="button" class="btn-consultar" onclick="whois()" aria-label="Consultar domínio">🔎 Consultar</button>
+</div>
+</div>
+</div>
+</div>
+<div class="duo-quadros" style="grid-template-columns: 1fr;">
+<div class="quadro-duo">
+<h3 class="titulo-secao" style="margin-top:0;">Consultar o CNPJ em Órgãos Públicos</h3>
+<div class="grid-duo grid-duo-arquivos">
+<button type="button" onclick="receita()" aria-label="Consultar na Receita Federal">🏦<br>Receita<br>Federal</button>
+<button type="button" onclick="caixa()" aria-label="Consultar na Caixa Econômica">🏦<br>Consulta<br>Caixa</button>
+<button type="button" onclick="sintegra()" aria-label="Consultar na Sefaz RJ">🏦<br><br>Sefaz RJ</button>
+<button type="button" onclick="regularize()" aria-label="Consultar no Regularize PGFN">🏦<br><br>Regularize</button>
+<button type="button" onclick="devedorUniao()" aria-label="Consultar Devedor da União PGFN">🏦<br><br>Devedor da União</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🏦<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🏦<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🏦<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🏦<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🏦<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🏦<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🏦<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🏦<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🏦<br><br>Coringa</button>
+</div>
+</div>
+</div>
+<div class="duo-quadros" style="grid-template-columns: 1fr;">
+<div class="quadro-duo">
+<h3 class="titulo-secao" style="margin-top:0;">Links Internos IBGE</h3>
+<div class="grid-duo grid-duo-arquivos" style="margin-top:12px;">
+<button type="button" onclick="portalweb1()" aria-label="Abrir Portal Web1">🌐<br>Portal Web1</button>
+<button type="button" onclick="portalweb2()" aria-label="Abrir Portal Web2">🌐<br>Portal Web2</button>
+<button type="button" onclick="emailIBGE()" aria-label="Abrir e-mail IBGE">✉<br>e-mail IBGE</button>
+<button type="button" onclick="driveIBGE()" aria-label="Abrir Drive IBGE">🖥️<br>Drive IBGE</button>
+<button type="button" onclick="questionarios()" aria-label="Abrir Questionários">🌎<br>Questionários</button>
+<button type="button" onclick="pesquisaCNAE()" aria-label="Pesquisar CNAE IBGE">🌎<br>CNAE IBGE</button>
+<button type="button" onclick="certidaoIBGE()" aria-label="Abrir Certidão IBGE">📄<br>Certidão IBGE</button>
+<a href="https://peegestor.ibge.gov.br" target="_blank" rel="noopener noreferrer" aria-label="Abrir PEE Gestor">🌐<br>PEE Gestor</a>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🌐<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🌐<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🌐<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🌐<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🌐<br><br>Coringa</button>
+<button type="button" class="coringa-reservado" aria-disabled="true" tabindex="-1" aria-label="Botão reservado">🌐<br><br>Coringa</button>
+</div>
+</div>
+</div>
+<div class="duo-quadros" style="grid-template-columns: 1fr;">
+<div class="quadro-duo">
+<h3 class="titulo-secao" style="margin-top:0;">Arquivos Complementares</h3>
+<div class="grid-duo grid-duo-arquivos" style="margin-top:12px;">
+<button type="button" onclick="checklist()" aria-label="Abrir Checklist">📝<br>Checklist</button>
+<button type="button" onclick="parecerAGU()" aria-label="Abrir Parecer AGU">📝<br>Parecer<br>AGU</button>
+<button type="button" onclick="in2119RFB()" aria-label="Abrir IN 2119 RFB">📝<br>IN 2119<br>RFB</button>
+<button type="button" onclick="oficioInadimplencia()" aria-label="Abrir Ofício Inadimplência" title="Abrir Ofício Inadimplência">📝<br>Ofício<br>Inadimplência</button>
+<button type="button" onclick="oficioCorreios()" aria-label="Abrir Ofício dos Correios">📮<br>Ofício<br>Correios</button>
+<button type="button" onclick="correios()" aria-label="Abrir Rastreamento dos Correios">📦<br>Rastrear<br>Correios</button>
+<button type="button" onclick="mapaAgencias()" aria-label="Abrir Mapa das Agências">🗺️<br>Mapa das<br>Agências</button>
+<a href="./mapaEmpresas.html" target="_blank" rel="noopener" aria-label="Abrir Mapa das empresas não coletadas" title="Abrir o mapa das empresas que ainda não foram coletadas (usa a planilha importada)">🗺️<br>Mapa Ñ<br>COLETADAS</a>
+<button type="button" onclick="cronogramaEconomicas()" aria-label="Abrir Cronograma das Pesquisas Econômicas Anuais">📅<br>Cronograma<br>Econômicas</button>
+<button type="button" onclick="escalaServidores()" aria-label="Abrir Escala de Servidores" title="Escolher a agência e abrir a Escala de Servidores">👥<br>Escala<br>Servidores</button>
+<button type="button" onclick="rotasComplementares()" oncontextmenu="return editarLinkRotas(event)" aria-label="Abrir Rotas (clique com o botão direito para gerenciar as rotas cadastradas)" title="Clique para abrir a rota salva (ou escolher entre elas, se houver mais de uma). Clique com o botão direito para cadastrar, renomear, remover ou acrescentar rotas.">🔗<br>Rotas</button>
+<!-- coringa20: destino definido -> Protocolo de Ocorrências (abre protocolo.pdf) -->
+<button type="button" onclick="protocoloOcorrencias()" aria-label="Abrir Protocolo de Ocorrências">📝<br>Protocolo de<br>Ocorrências</button>
+<a href="./padraoFAC20.pdf" target="_blank" rel="noopener noreferrer" aria-label="Abrir Padrão FAC20">📝<br>Padrão<br>FAC20</a>
+<a href="./ProcedimentosGlobalProtect.pdf" target="_blank" rel="noopener noreferrer" aria-label="Abrir Global Protect - Procedimentos">📝<br>Global<br>Protect</a>
+</div>
+</div>
+</div>
+
+<!-- ===== NOVOS DADOS ENCONTRADOS DA EMPRESA ===== -->
+<div class="duo-quadros" style="grid-template-columns: 1fr;">
+<div class="quadro-duo quadro-novos-dados-empresa">
+<h3 class="titulo-secao" style="margin-top:0;">📝 Novos dados encontrados da Empresa</h3>
+<div class="sipea-quadro nde-bloco">
+<h4>TELEFONES:</h4>
+<div class="nde-entrada">
+<label class="nde-label" for="nd-telefones">Novos Telefones:</label>
+<input type="text" id="nd-telefones" class="nde-input" placeholder="(00) 00000-0000" autocomplete="off" oninput="ndMascara(this,'telefone')" onkeydown="ndTecla(event,'telefones')" inputmode="tel" aria-label="Novos telefones encontrados">
+<div class="nde-acoes">
+<button type="button" class="sipea-btn-incluir" onclick="ndIncluir('telefones')">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="ndLimpar('telefones')">Limpar</button>
+</div>
+</div>
+<div class="nde-resultado">
+<div class="nde-res-conteudo"><span class="nde-res-label">Novo(s) telefone(s):</span> <span id="nd-res-telefones" class="nde-res-valor"></span></div>
+<button type="button" id="nd-res-btn-telefones" class="nde-btn-copiar nde-vazio" onclick="ndCopiar('telefones')">📋 Copiar</button>
+</div>
+</div>
+<div class="sipea-quadro nde-bloco">
+<h4>E-MAILS:</h4>
+<div class="nde-entrada">
+<label class="nde-label" for="nd-emails">Novos e-mails:</label>
+<input type="text" id="nd-emails" class="nde-input" placeholder="nome@empresa.com" autocomplete="off" onkeydown="ndTecla(event,'emails')" inputmode="email" aria-label="Novos e-mails encontrados">
+<div class="nde-acoes">
+<button type="button" class="sipea-btn-incluir" onclick="ndIncluir('emails')">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="ndLimpar('emails')">Limpar</button>
+</div>
+</div>
+<div class="nde-resultado">
+<div class="nde-res-conteudo"><span class="nde-res-label">Novo(s) e-mail(s):</span> <span id="nd-res-emails" class="nde-res-valor"></span></div>
+<button type="button" id="nd-res-btn-emails" class="nde-btn-copiar nde-vazio" onclick="ndCopiar('emails')">📋 Copiar</button>
+</div>
+</div>
+<div class="sipea-quadro nde-bloco">
+<h4>ENDEREÇOS:</h4>
+<div class="nde-entrada">
+<label class="nde-label" for="nd-enderecos">Novos Endereços:</label>
+<input type="text" id="nd-enderecos" class="nde-input" placeholder="Rua, Número" autocomplete="off" onkeydown="ndTecla(event,'enderecos')" aria-label="Novos endereços encontrados">
+<div class="nde-acoes">
+<button type="button" class="sipea-btn-incluir" onclick="ndIncluir('enderecos')">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="ndLimpar('enderecos')">Limpar</button>
+</div>
+</div>
+<div class="nde-resultado">
+<div class="nde-res-conteudo"><span class="nde-res-label">Novo(s) endereço(s):</span> <span id="nd-res-enderecos" class="nde-res-valor"></span></div>
+<button type="button" id="nd-res-btn-enderecos" class="nde-btn-copiar nde-vazio" onclick="ndCopiar('enderecos')">📋 Copiar</button>
+</div>
+</div>
+<div class="sipea-quadro nde-bloco">
+<h4>BAIRRO / CEP / UF:</h4>
+<div class="nde-entrada nde-entrada-bairro">
+<label class="nde-label" for="nd-bairro">Bairro:</label>
+<input type="text" id="nd-bairro" class="nde-input" placeholder="Bairro" autocomplete="off" onkeydown="ndTecla(event,'bairro')" aria-label="Bairro">
+<label class="nde-label" for="nd-cep">CEP:</label>
+<input type="text" id="nd-cep" class="nde-input nde-input-cep" placeholder="00000-000" inputmode="numeric" autocomplete="off" oninput="ndMascara(this,'cep')" onkeydown="ndTecla(event,'bairro')" aria-label="CEP">
+<select id="nd-cidade" class="nde-input nde-input-uf" aria-label="UF"><option value="">UF</option><option>AC</option><option>AL</option><option>AP</option><option>AM</option><option>BA</option><option>CE</option><option>DF</option><option>ES</option><option>GO</option><option>MA</option><option>MT</option><option>MS</option><option>MG</option><option>PA</option><option>PB</option><option>PR</option><option>PE</option><option>PI</option><option>RJ</option><option>RN</option><option>RS</option><option>RO</option><option>RR</option><option>SC</option><option>SP</option><option>SE</option><option>TO</option></select>
+<div class="nde-acoes">
+<button type="button" class="sipea-btn-incluir" onclick="ndIncluir('bairro')">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="ndLimpar('bairro')">Limpar</button>
+</div>
+</div>
+<div class="nde-resultado">
+<div class="nde-res-conteudo nde-res-trio">
+<span><span class="nde-res-label">Novo Bairro:</span> <span id="nd-res-bairro" class="nde-res-valor"></span></span>
+<span><span class="nde-res-label">CEP:</span> <span id="nd-res-cep" class="nde-res-valor"></span></span>
+<span><span class="nde-res-label">UF:</span> <span id="nd-res-uf" class="nde-res-valor"></span></span>
+</div>
+<button type="button" id="nd-res-btn-bairro" class="nde-btn-copiar nde-vazio" onclick="ndCopiar('bairro')">📋 Copiar</button>
+</div>
+</div>
+<div class="sipea-quadro nde-bloco">
+<h4>OUTRA EMPRESA DO(S) SÓCIO(S):</h4>
+<div class="nde-entrada">
+<label class="nde-label" for="nd-outra-empresa">Outra empresa do(s) sócio(s):</label>
+<input type="text" id="nd-outra-empresa" class="nde-input" placeholder="Razão Social / Fantasia" autocomplete="off" onkeydown="ndTecla(event,'empresas')" aria-label="Outra empresa em nome dos sócios">
+<div class="nde-acoes">
+<button type="button" class="sipea-btn-incluir" onclick="ndIncluir('empresas')">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="ndLimpar('empresas')">Limpar</button>
+</div>
+</div>
+<div class="nde-resultado">
+<div class="nde-res-conteudo"><span class="nde-res-label">Razão Social:</span> <span id="nd-res-empresas" class="nde-res-valor"></span></div>
+<button type="button" id="nd-res-btn-empresas" class="nde-btn-copiar nde-vazio" onclick="ndCopiar('empresas')">📋 Copiar</button>
+</div>
+</div>
+<div class="sipea-quadro nde-bloco">
+<h4>CNPJ:</h4>
+<div class="nde-entrada">
+<label class="nde-label" for="nd-outra-cnpj">CNPJ:</label>
+<input type="text" id="nd-outra-cnpj" class="nde-input" placeholder="00000000/0001-00" autocomplete="off" oninput="ndMascara(this,'cnpj')" onkeydown="ndTecla(event,'cnpjs')" inputmode="numeric" aria-label="CNPJ da outra empresa">
+<div class="nde-acoes">
+<button type="button" class="sipea-btn-incluir" onclick="ndIncluir('cnpjs')">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="ndLimpar('cnpjs')">Limpar</button>
+</div>
+</div>
+<div class="nde-resultado">
+<div class="nde-res-conteudo"><span class="nde-res-label">CNPJ:</span> <span id="nd-res-cnpjs" class="nde-res-valor"></span></div>
+<button type="button" id="nd-res-btn-cnpjs" class="nde-btn-copiar nde-vazio" onclick="ndCopiar('cnpjs')">📋 Copiar</button>
+</div>
+</div>
+<div class="sipea-quadro nde-bloco">
+<h4>SÓCIO(A)(S):</h4>
+<div class="nde-entrada">
+<label class="nde-label" for="nd-socios">Sócio(a)(s):</label>
+<input type="text" id="nd-socios" class="nde-input" placeholder="nome (s) sócio(a)(s)" autocomplete="off" onkeydown="ndTecla(event,'socios')" aria-label="Nomes dos sócios">
+<div class="nde-acoes">
+<button type="button" class="sipea-btn-incluir" onclick="ndIncluir('socios')">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="ndLimpar('socios')">Limpar</button>
+</div>
+</div>
+<div class="nde-resultado">
+<div class="nde-res-conteudo"><span class="nde-res-label">Sócio(a)(s):</span> <span id="nd-res-socios" class="nde-res-valor"></span></div>
+<button type="button" id="nd-res-btn-socios" class="nde-btn-copiar nde-vazio" onclick="ndCopiar('socios')">📋 Copiar</button>
+</div>
+</div>
+</div>
+</div>
+
+<div class="card sipea-container" id="sipeaContainer">
+<h3 class="titulo-secao" style="margin-top:0;">Padrão das observações a serem registradas no SIPEA:</h3>
+
+<div class="sipea-quadro">
+<h4>LIGAÇÕES:</h4>
+<div class="sipea-linha">
+<label for="sipea-lig-telefone">Telefone:</label>
+<input type="text" id="sipea-lig-telefone" class="sipea-input-menor" placeholder="(xx) xxxx-xxxx" inputmode="numeric" maxlength="15" oninput="ndFormatarTelefone(this)" aria-label="Telefone da ligação">
+<select id="sipea-lig-status" class="sipea-select-menor" onchange="sipeaToggleLigacaoContato(this)" aria-label="Resultado da ligação">
+<option value="não completa a ligação">não completa a ligação</option>
+<option value="direto na cx postal">direto na cx postal</option>
+<option value="não recebe ligações">não recebe ligações</option>
+<option value="não funciona">não funciona</option>
+<option value="Consegui contato">Consegui contato</option>
+</select>
+<span class="sipea-linha" id="sipea-lig-contato-wrap" style="display:none; margin:0; padding:0;">
+<select id="sipea-lig-tipo-contato" class="sipea-select-menor" aria-label="Tipo de contato conseguido">
+<option value="">Selecione</option>
+<option value="Empresa">Empresa</option>
+<option value="Contabilidade">Contabilidade</option>
+</select>
+<input type="text" id="sipea-lig-contato" class="sipea-input-menor sipea-input-extenso" value="Falei com " aria-label="Detalhes do contato conseguido">
+</span>
+<span class="sipea-botoes-sub">
+<button type="button" class="sipea-btn-incluir" onclick="sipeaIncluirLigacao()">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="sipeaLimparLigacao()">Limpar</button>
+</span>
+</div>
+</div>
+
+<div class="sipea-quadro">
+<h4>E-MAILS:</h4>
+<div class="sipea-linha">
+<label for="sipea-email-valor">e-mail:</label>
+<input type="text" id="sipea-email-valor" class="sipea-input-menor" placeholder="nome@empresa.com" oninput="sipeaFormatarEmail(this)" aria-label="E-mail(s) para registro, separados por ponto e vírgula">
+<select id="sipea-email-status" class="sipea-select-menor" aria-label="Resultado do envio de e-mail">
+<option value="falha na entrega">falha na entrega</option>
+<option value="entregue com sucesso">entregue com sucesso</option>
+</select>
+<span class="sipea-botoes-sub">
+<button type="button" class="sipea-btn-incluir" onclick="sipeaIncluirEmail()">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="sipeaLimparEmail()">Limpar</button>
+</span>
+</div>
+</div>
+
+<div class="sipea-quadro">
+<h4>WHATSAPP:</h4>
+<div class="sipea-linha">
+<label for="sipea-wpp-telefone">Wpp.:</label>
+<input type="text" id="sipea-wpp-telefone" class="sipea-input-menor" placeholder="(xx) xxxxx-xxxx" inputmode="numeric" maxlength="15" oninput="ndFormatarTelefone(this)" aria-label="Número de WhatsApp">
+<select id="sipea-wpp-status" class="sipea-select-menor" onchange="sipeaToggleWppResposta(this)" aria-label="Resultado do contato por WhatsApp">
+<option value="este número não contém wpp.">este número não contém wpp.</option>
+<option value="enviada mensagem, mas não respondida">enviada mensagem, mas não respondida</option>
+<option value="obtive a resposta:">obtive a resposta:</option>
+</select>
+<span class="sipea-linha" id="sipea-wpp-resposta-wrap" style="display:none; margin:0; padding:0;">
+<input type="text" id="sipea-wpp-resposta" class="sipea-input-menor sipea-input-extenso" placeholder="Digite a resposta recebida" aria-label="Resposta obtida pelo WhatsApp">
+</span>
+<span class="sipea-botoes-sub">
+<button type="button" class="sipea-btn-incluir" onclick="sipeaIncluirWhatsapp()">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="sipeaLimparWhatsapp()">Limpar</button>
+</span>
+</div>
+</div>
+
+<div class="sipea-quadro">
+<h4>RAIS:</h4>
+<div class="sipea-linha">
+<span style="font-weight:600; font-size:13px;">RAIS:</span>
+<label for="sipea-rais-ano">Ano:</label>
+<input type="text" id="sipea-rais-ano" class="sipea-curto" list="sipea-anos-list" maxlength="4" inputmode="numeric" placeholder="AAAA" oninput="sipeaSomenteNumeros(this,4)" aria-label="Ano da RAIS">
+<datalist id="sipea-anos-list">
+<option value="2025"></option>
+<option value="2024"></option>
+<option value="2023"></option>
+<option value="2022"></option>
+<option value="2021"></option>
+<option value="2020"></option>
+</datalist>
+<label for="sipea-rais-po">PO:</label>
+<input type="text" id="sipea-rais-po" class="sipea-curto" maxlength="4" inputmode="numeric" placeholder="0000" oninput="sipeaSomenteNumeros(this,4)" aria-label="PO da RAIS">
+<select id="sipea-rais-salarios" aria-label="RAIS com ou sem salários">
+<option value="COM salários">COM salários</option>
+<option value="SEM salários">SEM salários</option>
+</select>
+<label for="sipea-rais-telefone">Telefone:</label>
+<input type="text" id="sipea-rais-telefone" placeholder="(xx) xxxx-xxxx" inputmode="numeric" maxlength="15" oninput="ndFormatarTelefone(this)" aria-label="Telefone obtido na RAIS">
+<label for="sipea-rais-email">e-mail:</label>
+<input type="text" id="sipea-rais-email" placeholder="nome@empresa.com" oninput="sipeaLowercase(this)" aria-label="E-mail obtido na RAIS">
+<label for="sipea-rais-endereco">Endereço:</label>
+<input type="text" id="sipea-rais-endereco" placeholder="Endereço" aria-label="Endereço obtido na RAIS">
+<button type="button" class="sipea-btn-incluir" onclick="sipeaIncluirRais()">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="sipeaLimparRais()">Limpar</button>
+</div>
+</div>
+
+<div class="sipea-quadro">
+<h4>CONSULTA CAIXA: <span class="sipea-instrucao">Usar a raiz do CNPJ para consultar o endereço SEM colocar a "UF".</span></h4>
+<div class="sipea-linha">
+<label for="sipea-caixa-endereco">CONSULTA CAIXA – Endereço:</label>
+<input type="text" id="sipea-caixa-endereco" placeholder="Endereço encontrado na Consulta Caixa" aria-label="Endereço da Consulta Caixa">
+<button type="button" class="sipea-btn-incluir" onclick="sipeaIncluirCaixa()">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="sipeaLimparCaixa()">Limpar</button>
+</div>
+</div>
+
+<div class="sipea-quadro">
+<h4>CONSULTA EMPRESA: <span class="sipea-instrucao">Fazer a consulta no SIPEA e verificar se a empresa já foi selecionada em anos anteriores. Caso tenha sido selecionada, verificar quando o questionário foi coletado ou qual a FAC.</span></h4>
+<div class="sipea-linha">
+<label for="sipea-empresa-selecionada">A empresa já foi selecionada em anos anteriores?</label>
+<select id="sipea-empresa-selecionada" class="sipea-select-menor" onchange="sipeaToggleEmpresaAnos(this)" aria-label="Empresa já selecionada em anos anteriores">
+<option value="">Selecione</option>
+<option value="SIM">SIM</option>
+<option value="NÃO">NÃO</option>
+</select>
+<span class="sipea-botoes-sub">
+<button type="button" class="sipea-btn-incluir" onclick="sipeaIncluirEmpresa()">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="sipeaLimparEmpresa()">Limpar</button>
+</span>
+</div>
+<div class="sipea-linha" id="sipea-empresa-anos-wrap" style="display:none;">
+<label for="sipea-empresa-anos">Quais os anos:</label>
+<input type="text" id="sipea-empresa-anos" class="sipea-input-menor" placeholder="2021/ 2023" inputmode="numeric" oninput="sipeaFormatarAnos(this)" aria-label="Anos em que a empresa foi selecionada">
+<select id="sipea-empresa-tipo" class="sipea-select-menor" onchange="sipeaToggleEmpresaTipo(this)" aria-label="FAC ou Coletada">
+<option value="">Selecione</option>
+<option value="FAC">FAC</option>
+<option value="COLETADA">COLETADA</option>
+</select>
+<span class="sipea-linha" id="sipea-empresa-fac-wrap" style="display:none; margin:0; padding:0;">
+<select id="sipea-empresa-fac" class="sipea-select-menor" aria-label="Número da FAC">
+<option value="5">5</option>
+<option value="9">9</option>
+<option value="20">20</option>
+</select>
+</span>
+<span class="sipea-linha" id="sipea-empresa-data-wrap" style="display:none; margin:0; padding:0;">
+<label for="sipea-empresa-data">Data:</label>
+<input type="text" id="sipea-empresa-data" class="sipea-curto" placeholder="xx/xx/xxxx" inputmode="numeric" maxlength="10" oninput="sipeaFormatarData(this)" aria-label="Data em que o questionário foi coletado">
+</span>
+</div>
+</div>
+
+<div class="sipea-quadro">
+<h4>CONSULTA INTERNET: <span class="sipea-instrucao">Escreva aqui as informações encontradas na internet e depois copie e cole nas OBS do SIPEA.</span></h4>
+<div class="sipea-linha">
+<label for="sipea-internet-texto">INTERNET:</label>
+<textarea id="sipea-internet-texto" rows="3" placeholder="Informações encontradas na internet" aria-label="Informações encontradas na internet"></textarea>
+<button type="button" class="sipea-btn-incluir" onclick="sipeaIncluirInternet()">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="sipeaLimparInternet()">Limpar</button>
+</div>
+</div>
+
+<div class="sipea-quadro">
+<h4>PRESENCIAIS:</h4>
+<div class="sipea-linha">
+<select id="sipea-visita-num" class="sipea-select-mini" aria-label="Número da visita">
+<option value="1">VISITA 1:</option>
+<option value="2">VISITA 2:</option>
+<option value="3">VISITA 3:</option>
+<option value="4">VISITA 4:</option>
+</select>
+<span>Visita presencial à empresa no endereço</span>
+<input type="text" id="sipea-visita-endereco" placeholder="Endereço visitado" aria-label="Endereço da visita presencial">
+<span>, na data</span>
+<input type="text" id="sipea-visita-data" class="sipea-curto" placeholder="xx/xx/xxxx" inputmode="numeric" maxlength="10" oninput="sipeaFormatarData(this)" aria-label="Data da visita presencial">
+<span>.</span>
+<input type="text" id="sipea-visita-obs" placeholder="Observações da visita" aria-label="Observações da visita presencial">
+<button type="button" class="sipea-btn-incluir" onclick="sipeaIncluirVisita()">Incluir</button>
+<button type="button" class="sipea-btn-limpar-sub" onclick="sipeaLimparVisita()">Limpar</button>
+</div>
+</div>
+
+<div class="sipea-obs">
+<h4 style="margin:0 0 10px; color:var(--cor-primaria); font-size:15px; font-weight:700;">OBS SIPEA:</h4>
+<div id="sipeaObsSaida">
+<div class="sipea-obs-vazio">Nenhuma observação incluída ainda.</div>
+</div>
+<textarea id="sipeaTextoLivre" class="sipea-livre" placeholder="Texto livre adicional..." aria-label="Texto livre adicional para OBS SIPEA"></textarea>
+<div class="sipea-botoes">
+<button type="button" class="sipea-btn-limpar" onclick="sipeaLimparTudo()">🗑️ Limpar</button>
+<button type="button" class="sipea-btn-copiar" onclick="sipeaCopiar()">📋 Copiar</button>
+<button type="button" class="sipea-btn-atualizar" onclick="sipeaAtualizar()">🔄 Atualizar</button>
+</div>
+</div>
+
+</div>
+
+
+<div class="info" style="margin-top:30px;">
+<h6><i>"A preguiça gasta a vida como a ferrugem consome o ferro."</i></h6>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
+<script src="painel.js?v=7"></script>
+<footer class="rodape-ibge">
+<p><strong><span class="ibge">IBGE</span> - Nossa Missão:</strong> Retratar o Brasil com informações necessárias ao conhecimento de sua realidade e ao exercício da cidadania.</p>
+<p>Site: <a href="https://www.ibge.gov.br" target="_blank" rel="noopener noreferrer">www.ibge.gov.br</a> &nbsp;&nbsp;|&nbsp;&nbsp; Telefone: 0800 721 8181</p>
+</footer>
+
+</div>
+</body>
+</html>

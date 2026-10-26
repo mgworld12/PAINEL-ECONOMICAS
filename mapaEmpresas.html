@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mapa de Empresas por Status</title>
+
+  <!-- Proteção de acesso: exige login feito no index.html -->
+  <style>html { visibility: hidden; }</style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const SUPABASE_URL = 'https://rdxklpkukmuwwetftqde.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_sklR4egsYWIHZ3UMdWLyWQ_NHOVkD16';
+    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Resolve true se o usuário está logado e aprovado; senão manda para o index.html
+    const acessoOk = (async () => {
+      try {
+        const { data: { session } } = await _supabase.auth.getSession();
+        if (!session) { window.location.replace('index.html'); return false; }
+
+        const { data, error } = await _supabase
+          .from('perfis').select('aprovado').eq('id', session.user.id).maybeSingle();
+        if (error || !data || data.aprovado !== true) {
+          await _supabase.auth.signOut();
+          window.location.replace('index.html');
+          return false;
+        }
+        document.documentElement.style.visibility = 'visible';
+        // se sair (logout em outra aba, sessão expirada) ou voltar pelo botão "voltar" já deslogado, bloqueia de novo
+        _supabase.auth.onAuthStateChange((ev, ses) => {
+          if (ev === 'SIGNED_OUT' || !ses) { document.documentElement.style.visibility = 'hidden'; window.location.replace('index.html'); }
+        });
+        return true;
+      } catch (e) {
+        window.location.replace('index.html');
+        return false;
+      }
+    })();
+    // página restaurada do cache do navegador (botão voltar): confere o login de novo
+    window.addEventListener('pageshow', ev => { if (ev.persisted) { document.documentElement.style.visibility = 'hidden'; window.location.reload(); } });
+  </script>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body, html { width: 100%; height: 100%; font-family: Arial, sans-serif; }
+    #map { width: 100%; height: 100vh; }
+    .setor-tooltip {
+      background-color: rgba(0, 0, 0, 0.85);
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 10px;
+      font-size: 13px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .setor-tooltip b { font-size: 15px; color: #ffe066; }
+    .setor-tooltip::before { display: none; }
+    #aviso {
+      position: absolute; z-index: 1000; left: 50%; top: 12px; transform: translateX(-50%);
+      background: #fff; padding: 6px 14px; border-radius: 6px; font-size: 13px;
+      box-shadow: 0 2px 6px rgba(0,0,0,.3); max-width: 90vw; text-align: center;
+    }
+    #voltar {
+      position: absolute; z-index: 1000; left: 60px; top: 10px;
+      background: #fff; color: #222; text-decoration: none; font-size: 14px; font-weight: bold;
+      padding: 8px 14px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,.3);
+    }
+    #voltar:hover { background: #f0f0f0; }
+    #busca {
+      position: absolute; z-index: 1000; left: 170px; top: 10px;
+      background: #fff; padding: 5px 6px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,.3);
+      display: flex; align-items: center; gap: 4px;
+    }
+    #busca input { width: 190px; padding: 5px 7px; font-size: 14px; border: 1px solid #aaa; border-radius: 4px; }
+    #busca button, #acoes button, #lateral button {
+      padding: 6px 10px; font-size: 13px; font-weight: bold; border: 0; border-radius: 4px;
+      background: #000080; color: #fff; cursor: pointer;
+    }
+    #busca button:hover, #acoes button:hover, #lateral button:hover { background: #1a1ab0; }
+    #buscaMsg { font-size: 12px; color: #c00; max-width: 160px; }
+    #buscaMsg.ok { color: #060; }
+    #acoes {
+      position: absolute; z-index: 1000; right: 60px; top: 10px;
+      background: #fff; padding: 5px 6px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,.3);
+      display: flex; align-items: center; gap: 4px;
+    }
+    #acoes button.sec, #lateral button.sec { background: #ddd; color: #222; }
+    #acoes button.sec:hover, #lateral button.sec:hover { background: #ccc; }
+    #lateral {
+      position: absolute; z-index: 1000; right: 60px; top: 56px; width: 300px; max-height: calc(100vh - 110px); overflow: auto;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    #lateral.fechado { display: none; }
+    #lateral .cartao { background: #fff; padding: 10px 12px; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,.3); font-size: 13px; color: #222; }
+    #lateral .lin { display: flex; align-items: center; gap: 7px; padding: 3px 0; }
+    #lateral .lin > span:first-of-type { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #lateral input[type=color] { width: 30px; height: 22px; padding: 0; border: 1px solid #999; border-radius: 3px; background: none; cursor: pointer; flex: none; }
+    #lateral select { width: 165px; padding: 3px; font-size: 12px; border: 1px solid #aaa; border-radius: 4px; flex: none; }
+    #lateral .nota { font-size: 11px; color: #666; margin-top: 4px; line-height: 1.35; }
+    #lateral h4 { font-size: 12px; text-transform: uppercase; color: #555; margin: 10px 0 4px; }
+    #lateral h4:first-child { margin-top: 0; }
+    #lateral label { display: flex; align-items: center; gap: 7px; padding: 3px 0; cursor: pointer; }
+    #lateral .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; border: 1px solid rgba(0,0,0,.25); }
+    #lateral .n { margin-left: auto; color: #555; font-variant-numeric: tabular-nums; }
+    #lateral label.zero { opacity: .45; }
+    #lateral details.cartao > summary { cursor: pointer; font-size: 12px; font-weight: bold; text-transform: uppercase; color: #555; }
+    #lateral details.cartao[open] > summary { margin-bottom: 8px; }
+    #lateral select#selApm { width: 100%; margin-bottom: 4px; }
+    #listaRota ol { margin: 0 0 0 18px; } #listaRota li { margin: 3px 0; font-size: 12px; } #listaRota a { color: #c00; text-decoration: none; font-weight: bold; }
+    #inpPartida { width: 100%; padding: 5px; font-size: 12px; border: 1px solid #aaa; border-radius: 4px; }
+    #listaRotaBairros, #listaRota { max-height: 160px; overflow: auto; }
+    #fonte { font-size: 12px; color: #444; line-height: 1.4; margin-bottom: 6px; }
+    #lateral .linhaBtn { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    #semLoc { font-size: 12px; margin-top: 8px; }
+    #semLoc summary { cursor: pointer; }
+    #semLoc li { margin: 4px 0 4px 16px; }
+    #rodape {
+      position: fixed; left: 8px; bottom: 8px; z-index: 1000; background: rgba(255,255,255,.88); color: #222;
+      font: 11px Arial, sans-serif; padding: 3px 7px; border-radius: 4px; pointer-events: none;
+    }
+    .setor-tooltip .emp { margin: 4px 0; padding-left: 7px; border-left: 4px solid #999; font-size: 12px; line-height: 1.4; color: #e8e8e8; }
+    .setor-tooltip .bd { display: inline-block; color: #fff; font-weight: bold; font-size: 12px; padding: 1px 6px; border-radius: 3px; margin-bottom: 2px; }
+    .setor-tooltip .end { font-size: 12px; color: #9ad1ff; margin-bottom: 3px; }
+    .setor-tooltip .apm { color: #ffe066; font-weight: bold; }
+    .setor-tooltip .ok { font-size: 11px; color: #8be28b; margin-top: 3px; }
+    .setor-tooltip .aprox { font-size: 11px; color: #ffb74d; margin-top: 3px; }
+    .pin-empresa { background: none; border: 0; }
+    .pin-empresa svg { filter: drop-shadow(0 1px 2px rgba(0,0,0,.55)); }
+    .popup-emp { font-size: 13px; min-width: 240px; max-width: 320px; }
+    .popup-emp .it { margin: 6px 0; padding-left: 8px; border-left: 4px solid #999; line-height: 1.45; }
+    .popup-emp .bd { display: inline-block; color: #fff; font-weight: bold; font-size: 12px; padding: 1px 6px; border-radius: 3px; }
+    .popup-emp .cx-linha { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+    .popup-emp button { padding: 5px 9px; font-size: 12px; font-weight: bold; border: 0; border-radius: 4px; background: #000080; color: #fff; cursor: pointer; }
+    .popup-emp button.sec { background: #ddd; color: #222; }
+    .popup-emp .cx-end { width: 100%; padding: 5px; font-size: 13px; border: 1px solid #aaa; border-radius: 4px; margin-top: 3px; }
+    .popup-emp .cx-msg { font-size: 12px; margin-top: 6px; color: #555; }
+    .popup-emp a { color: #000080; font-weight: bold; }
+    @media (max-width: 760px) {
+      #busca { top: 58px; left: 10px; }
+      #acoes { top: 106px; right: auto; left: 10px; }
+      #lateral { top: 152px; right: auto; left: 10px; width: min(300px, calc(100vw - 20px)); }
+    }
+  </style>
+</head>
+<body>
+
+  <a id="voltar" href="painel.html">← Voltar</a>
+  <div id="busca">
+    <input id="buscaTxt" type="text" autocomplete="off" placeholder="Empresa, CNPJ ou endereço">
+    <button id="buscaBtn" type="button">Buscar</button>
+    <span id="buscaMsg"></span>
+  </div>
+  <div id="acoes">
+    <button id="btnImportar" type="button">📂 Importar planilha</button>
+    <button id="btnExportar" type="button" class="sec">⬇ Exportar</button>
+    <button id="btnFiltros" type="button" class="sec">☰ Filtros</button>
+    <input type="file" id="arquivo" accept=".xlsx,.xls,.csv" hidden>
+  </div>
+  <div id="lateral">
+  <div class="cartao" id="filtros">
+    <h4>Fonte dos dados</h4>
+    <div id="fonte">—</div>
+    <div class="linhaBtn">
+      <button id="btnPainel" type="button" class="sec" style="display:none">Usar planilha do painel</button>
+    </div>
+    <details id="semLoc" style="display:none"><summary id="semTit"></summary><ul id="semLista"></ul></details>
+  </div>
+  <details class="cartao" id="cartaoStatus">
+    <summary>Status das empresas</summary>
+    <div class="nota" style="margin:0 0 4px">Marque os status que devem aparecer no mapa.</div>
+    <div class="linhaBtn" style="margin:0 0 4px">
+      <button id="btnTodos" type="button" class="sec">✔ Selecionar todas</button>
+      <button id="btnNenhum" type="button" class="sec">✖ Limpar</button>
+    </div>
+    <div id="legenda"></div>
+  </details>
+  <details class="cartao" id="cartaoFiltro">
+    <summary>🔎 Filtro por bairro e APM</summary>
+    <select id="selApm"></select>
+    <label><input type="checkbox" id="chkOcultarTrat"> Ocultar empresas já visitadas</label>
+    <div class="linhaBtn"><button id="btnBairrosTodos" type="button" class="sec">✔ Todos os bairros</button><button id="btnBairrosNenhum" type="button" class="sec">✖ Nenhum</button></div>
+    <div id="listaFiltroBairros"></div>
+  </details>
+  <details class="cartao" id="cartaoBairros">
+    <summary>🎨 Cores por bairros</summary>
+    <label><input type="checkbox" id="chkCorBairro"> Colorir os pinos por bairro</label>
+    <label><input type="checkbox" id="chkCorApm"> Colorir os pinos por APM</label>
+    <div id="listaCores"></div>
+    <div class="nota">Com a cor por bairro ligada, o pino fica da cor do bairro e o círculo no centro mostra a cor do status.</div>
+    <div class="linhaBtn"><button id="btnCoresAuto" type="button" class="sec">Cores automáticas</button></div>
+  </details>
+  <details class="cartao" id="cartaoApm">
+    <summary>👤 APM por bairro</summary>
+    <div id="listaApm"></div>
+    <div class="nota">O APM escolhido aparece ao passar o mouse nos pinos do bairro.</div>
+    <div class="linhaBtn"><button id="btnLimparApm" type="button" class="sec">Limpar associações</button></div>
+  </details>
+  <details class="cartao" id="cartaoRota">
+    <summary>🚗 Rota de visita</summary>
+    <h4>Ponto de partida</h4>
+    <input id="inpPartida" type="text">
+    <div class="linhaBtn"><button id="btnPartidaSalvar" type="button">Alterar partida</button><button id="btnPartidaPadrao" type="button" class="sec">Restaurar padrão</button></div>
+    <div class="nota" id="msgPartida"></div>
+    <h4>Rota automática por bairros</h4>
+    <div id="listaRotaBairros"></div>
+    <div class="linhaBtn"><button id="btnRotaBTodos" type="button" class="sec">✔ Todos</button><button id="btnRotaBNenhum" type="button" class="sec">✖ Nenhum</button><button id="btnRotaAuto" type="button">⚙ Gerar rota</button></div>
+    <div class="nota">Usa as empresas visíveis no mapa (valem os filtros de status, APM, bairro e visitadas) e ordena pelo mais próximo, a partir da partida.</div>
+    <h4>Paradas da rota</h4>
+    <div id="listaRota"></div>
+    <div id="rotaTrechos" class="linhaBtn"></div>
+    <div class="linhaBtn"><button id="btnRotaExportar" type="button">⬇ Exportar rota</button><button id="btnRotaOrdenar" type="button" class="sec">Ordenar pelo mais próximo</button><button id="btnRotaLimpar" type="button" class="sec">Limpar</button></div>
+  </details>
+  </div>
+  <div id="map"></div>
+  <div id="aviso">Carregando mapa…</div>
+  <div id="rodape"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
+
+  <script>
+    // ===== CONFIGURAÇÃO =====
+    const CHAVE_PAINEL = 'dadosImportadosCNPJ';        // onde o painel.html guarda a planilha importada
+    const CHAVE_OUTRA = 'mapaEmpresasPlanilhaPropria'; // planilha importada direto neste mapa (substitui a do painel)
+    const CHAVE_GEO = 'mapaEmpresasGeo_v1';            // endereços já localizados (cache)
+    // Somente estes status aparecem no mapa (COLETADA, FAC e outros ficam de fora)
+    const STATUS = {
+      'ABORDADA': '#2563eb', 'ABORDAGEM EM ANDAMENTO': '#0891b2', 'ACORDADA': '#16a34a', 'COBRADA': '#ca8a04',
+      'EM ATRASO': '#dc2626', 'NADA FEITO': '#6b7280', 'NOTIFICADA': '#ea580c', 'RENEGOCIADA': '#9333ea'
+    };
+    const COR_MISTO = '#374151';
+
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const norm = s => String(s == null ? '' : s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim().replace(/\s+/g, ' ');
+    const chaveCol = s => norm(s).replace(/[^A-Z0-9]/g, '');
+    const espera = ms => new Promise(r => setTimeout(r, ms));
+
+    // ===== MAPA =====
+    const map = L.map('map', { preferCanvas: true }).setView([-22.96, -43.38], 12);
+    const canvas = L.canvas({ padding: 0.5 });
+    const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+    const attrEsri = 'Imagens © Esri, Maxar, Earthstar Geographics';
+    const satelite = L.tileLayer(esri + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: attrEsri });
+    const nomes = L.layerGroup([
+      L.tileLayer(esri + 'Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
+      L.tileLayer(esri + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 })
+    ]);
+    const hibrido = L.layerGroup([
+      L.tileLayer(esri + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: attrEsri }),
+      nomes
+    ]);
+    const ruas = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' });
+    satelite.addTo(map);
+    L.control.layers({
+      'Satélite': satelite,
+      'Satélite com nomes de ruas': hibrido,
+      'Mapa de ruas': ruas
+    }, null, { position: 'topright', collapsed: true }).addTo(map);
+
+    // ===== DADOS DA PLANILHA =====
+    const COLS = {
+      status: ['STATUSDAEMPRESA', 'STATUSEMPRESA'],
+      endereco: ['ENDERECODAUC', 'ENDERECO'],
+      razao: ['RAZAOSOCIAL'], fantasia: ['NOMEFANTASIA'], cnpj: ['CNPJ'],
+      bairro: ['BAIRRODAUC', 'BAIRROUC', 'BAIRRO'], cep: ['CEPDAUC', 'CEPUC'],
+      municipio: ['MUNICIPIO', 'MUNICIPIODAUC'], uf: ['UF', 'UFDAUC'],
+      resp: ['RESPONSAVELPELAABORDAGEM', 'NOMERESPONSAVELABORDAGEM', 'RESPONSAVEL']
+    };
+
+    // Recebe linhas (como o painel guarda, ou direto de .xlsx/.csv) e devolve só as empresas com os status pedidos
+    function extrair(linhas) {
+      if (!linhas || !linhas.length) return [];
+      const mapaCols = {};
+      Object.keys(linhas[0]).forEach(h => mapaCols[chaveCol(h)] = h);
+      const c = {};
+      Object.keys(COLS).forEach(k => { c[k] = null; for (const a of COLS[k]) if (mapaCols[a]) { c[k] = mapaCols[a]; break; } });
+      if (!c.status || !c.endereco) return null;
+      const v = (l, k) => c[k] ? String(l[c[k]] == null ? '' : l[c[k]]).trim() : '';
+      const out = [], apms = new Set(), bairrosSet = new Set();
+      for (const l of linhas) {
+        const ap = v(l, 'resp'); if (ap) apms.add(ap);
+        const bz = v(l, 'bairro'); if (bz) bairrosSet.add(bz);
+        const st = norm(v(l, 'status'));
+        if (!STATUS[st]) continue;
+        out.push({
+          st, end: v(l, 'endereco'), razao: v(l, 'razao'), fantasia: v(l, 'fantasia'),
+          cnpj: v(l, 'cnpj').replace(/^'+|'+$/g, ''), bairro: v(l, 'bairro'), cep: v(l, 'cep').replace(/\D/g, ''),
+          municipio: v(l, 'municipio') || 'Rio de Janeiro', uf: v(l, 'uf') || 'RJ', resp: v(l, 'resp')
+        });
+      }
+      ultimoApms = Array.from(apms); ultimoBairros = Array.from(bairrosSet);
+      return out;
+    }
+    let ultimoApms = [], ultimoBairros = [];
+
+    function lerJSON(chave) { try { return JSON.parse(localStorage.getItem(chave)); } catch (e) { return null; } }
+
+    let empresas = [], fonteTxt = '', todosApms = [], todosBairros = [];
+    function carregarDados() {
+      const propria = lerJSON(CHAVE_OUTRA);
+      if (propria && Array.isArray(propria.empresas)) {
+        empresas = propria.empresas;
+        todosApms = propria.apms || []; todosBairros = propria.bairros || [];
+        fonteTxt = 'Planilha importada neste mapa: <b>' + esc(propria.nome) + '</b>';
+        $('btnPainel').style.display = '';
+        return true;
+      }
+      $('btnPainel').style.display = 'none';
+      const doPainel = lerJSON(CHAVE_PAINEL);
+      if (Array.isArray(doPainel) && doPainel.length) {
+        const r = extrair(doPainel);
+        if (r) { empresas = r; todosApms = ultimoApms; todosBairros = ultimoBairros; fonteTxt = 'Planilha importada no <b>painel.html</b>'; return true; }
+      }
+      empresas = []; todosApms = []; todosBairros = [];
+      fonteTxt = 'Nenhuma planilha encontrada. Importe uma planilha no painel ou use o botão "Importar planilha".';
+      return false;
+    }
+
+    // ===== PREFERÊNCIAS (guardadas neste navegador) =====
+    const CHAVE_CORES = 'mapaEmpresasCoresBairro_v1', CHAVE_APM = 'mapaEmpresasApmBairro_v1', CHAVE_CORRECOES = 'mapaEmpresasCorrecoes_v1';
+    let coresBairro = lerJSON(CHAVE_CORES) || { modo: false, cores: {} };
+    let apmBairro = lerJSON(CHAVE_APM) || {};
+    let correcoes = lerJSON(CHAVE_CORRECOES) || {};
+    const CHAVE_TRAT = 'mapaEmpresasVisitadas_v1', CHAVE_POS = 'mapaEmpresasPos_v1', CHAVE_ROTA = 'mapaEmpresasRota_v1';
+    let trat = lerJSON(CHAVE_TRAT) || {}, posAuto = lerJSON(CHAVE_POS) || {}, rota = lerJSON(CHAVE_ROTA) || [];
+    const CHAVE_PARTIDA = 'mapaEmpresasPartida_v1', PARTIDA_PADRAO = 'Av. Ayrton Senna, 2001 - Jacarepaguá, Rio de Janeiro - RJ, 22775-002';
+    let partida = lerJSON(CHAVE_PARTIDA) || { txt: PARTIDA_PADRAO, lat: null, lng: null };
+    const rotaBairrosSel = new Set();
+    const gravar = (chave, obj) => { try { localStorage.setItem(chave, JSON.stringify(obj)); } catch (e) { console.warn('Não foi possível gravar', chave); } sincronizar(chave, obj); };
+    const PALETA = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4', '#00b8d9', '#f032e6', '#a8c800', '#008080', '#9a6324', '#800000', '#808000', '#000075', '#ff6f91'];
+
+        // ===== SINCRONIZAÇÃO COM O SUPABASE (tabela mapa_empresas_dados; uma linha por item) =====
+    const TAB = 'mapa_empresas_dados', TIPOS = {};
+    TIPOS[CHAVE_CORRECOES] = 'corr'; TIPOS[CHAVE_APM] = 'apm'; TIPOS[CHAVE_CORES] = 'cor'; TIPOS[CHAVE_TRAT] = 'trat'; TIPOS[CHAVE_POS] = 'pos';
+    const nuvem = { ok: false, vistos: {}, fila: Promise.resolve(), txt: '☁ sem sincronização' };
+
+    function sincronizar(chave, obj) {
+      const t = TIPOS[chave]; if (!t || !nuvem.ok) return;
+      const novo = chave === CHAVE_CORES ? obj.cores : obj, ant = nuvem.vistos[t] = nuvem.vistos[t] || {};
+      const subir = [], agora = new Date().toISOString();
+      Object.keys(novo).forEach(k => { const j = JSON.stringify(novo[k]); if (ant[k] !== j) { ant[k] = j; subir.push({ chave: t + '|' + k, valor: novo[k], atualizado: agora }); } });
+      const apagar = Object.keys(ant).filter(k => !(k in novo)); apagar.forEach(k => delete ant[k]);
+      if (!subir.length && !apagar.length) return;
+      nuvem.fila = nuvem.fila.then(async () => {
+        try {
+          for (let i = 0; i < subir.length; i += 500) { const r = await _supabase.from(TAB).upsert(subir.slice(i, i + 500)); if (r.error) throw r.error; }
+          for (let i = 0; i < apagar.length; i += 40) { const r = await _supabase.from(TAB).delete().in('chave', apagar.slice(i, i + 40).map(k => t + '|' + k)); if (r.error) throw r.error; }
+        } catch (e) { console.warn('Falha ao sincronizar', e); nuvem.txt = '☁ ⚠ falha ao salvar na nuvem'; $('rodape').textContent = $('rodape').textContent.replace(/ · ☁.*$/, '') + ' · ' + nuvem.txt; }
+      });
+    }
+
+    async function nuvemCarregar() {
+      try {
+        const linhas = [];
+        for (let i = 0; ; i += 1000) {
+          const { data, error } = await _supabase.from(TAB).select('chave,valor').order('chave').range(i, i + 999);
+          if (error) throw error;
+          linhas.push(...data); if (data.length < 1000) break;
+        }
+        const nuv = {};
+        linhas.forEach(l => { const p = l.chave.indexOf('|'); (nuv[l.chave.slice(0, p)] = nuv[l.chave.slice(0, p)] || {})[l.chave.slice(p + 1)] = l.valor; });
+        const alvo = { corr: correcoes, apm: apmBairro, cor: coresBairro.cores, trat: trat, pos: posAuto };
+        const primeira = !localStorage.getItem('mapaEmpresasNuvemIniciada');   // 1ª vez neste navegador: junta o que já existe aqui com a nuvem
+        Object.keys(alvo).forEach(t => {
+          nuvem.vistos[t] = {};
+          Object.keys(nuv[t] || {}).forEach(k => nuvem.vistos[t][k] = JSON.stringify(nuv[t][k]));
+          if (!primeira) Object.keys(alvo[t]).forEach(k => delete alvo[t][k]);   // depois disso, a nuvem manda
+          Object.assign(alvo[t], nuv[t] || {});
+        });
+        nuvem.ok = true; nuvem.txt = '☁ sincronizado';
+        localStorage.setItem('mapaEmpresasNuvemIniciada', '1');
+        gravar(CHAVE_CORRECOES, correcoes); gravar(CHAVE_APM, apmBairro); gravar(CHAVE_CORES, coresBairro); gravar(CHAVE_TRAT, trat); gravar(CHAVE_POS, posAuto);
+      } catch (e) { console.warn(e); nuvem.txt = '☁ sem sincronização (tabela não encontrada no Supabase)'; }
+    }
+
+    // ===== FILTROS (bairro / APM / visitadas), VISITAS, ROTA =====
+    let apmSel = '', ocultarTrat = false;
+    const bairrosOff = new Set();
+    const apmDe = e => apmBairro[e.bairroKey] || e.resp || '';
+    const listaApmsAll = () => [...new Set([...todosApms, ...empresas.map(e => e.resp), ...Object.values(apmBairro)].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const corApm = a => PALETA[(listaApmsAll().indexOf(a) + 3) % PALETA.length];
+    const dataBR = d => d ? d.split('-').reverse().join('/') : '';
+    const linhaTrat = e => trat[chaveEmp(e)] ? '<br>✅ Visitada em ' + dataBR(trat[chaveEmp(e)].data) : '';
+    const linhaObs = (e, ttip) => linhaTrat(e) + linhaObs0(e, ttip);
+
+    function renderFiltro() {
+      const aps = listaApmsAll();
+      if (apmSel && !aps.includes(apmSel)) apmSel = '';
+      $('selApm').innerHTML = '<option value="">Todos os APM</option>' + aps.map(a => '<option' + (apmSel === a ? ' selected' : '') + '>' + esc(a) + '</option>').join('');
+      $('listaFiltroBairros').innerHTML = bairros.map(b => '<label><input type="checkbox" data-k="' + esc(b.k) + '"' + (bairrosOff.has(b.k) ? '' : ' checked') + '><span>' + esc(b.nome) + '</span><span class="n">' + b.n + '</span></label>').join('');
+      $('listaFiltroBairros').querySelectorAll('input').forEach(i => i.addEventListener('change', () => { i.checked ? bairrosOff.delete(i.dataset.k) : bairrosOff.add(i.dataset.k); desenharPins(false); }));
+      $('listaRotaBairros').innerHTML = bairros.filter(b => b.k).map(b => '<label><input type="checkbox" data-k="' + esc(b.k) + '"' + (rotaBairrosSel.has(b.k) ? ' checked' : '') + '><span>' + esc(b.nome) + '</span><span class="n">' + b.n + '</span></label>').join('');
+      $('listaRotaBairros').querySelectorAll('input').forEach(i => i.addEventListener('change', () => { i.checked ? rotaBairrosSel.add(i.dataset.k) : rotaBairrosSel.delete(i.dataset.k); }));
+    }
+    $('selApm').addEventListener('change', e => { apmSel = e.target.value; desenharPins(false); });
+    $('chkOcultarTrat').addEventListener('change', e => { ocultarTrat = e.target.checked; desenharPins(false); });
+    $('btnBairrosTodos').addEventListener('click', () => { bairrosOff.clear(); renderFiltro(); desenharPins(false); });
+    $('btnBairrosNenhum').addEventListener('click', () => { bairros.forEach(b => bairrosOff.add(b.k)); renderFiltro(); desenharPins(false); });
+
+    function alternarVisita(e, el, g) {
+      const k = chaveEmp(e);
+      if (trat[k]) delete trat[k]; else trat[k] = { data: new Date().toLocaleDateString('sv-SE') };
+      gravar(CHAVE_TRAT, trat);
+      desenharPopup(el, g);                                              // atualiza a janela aberta, sem fechá-la
+      g.marker.setOpacity(g.itens.every(x => trat[chaveEmp(x)]) ? 0.45 : 1);
+      g.marker.getPopup().update();
+      redesenharSeLivre(false);                                          // o redesenho completo espera a janela fechar
+    }
+
+    function renderRota() {
+      $('listaRota').innerHTML = rota.length ? '<ol>' + rota.map((p, i) => '<li>' + esc(p.nome) + ' <a href="#" data-i="' + i + '" title="Remover">✖</a></li>').join('') + '</ol>'
+        : '<div class="nota">Nenhuma parada. Clique num pino e em "Adicionar à rota", ou gere a rota automática por bairros.</div>';
+      $('listaRota').querySelectorAll('a').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); rota.splice(+a.dataset.i, 1); gravar(CHAVE_ROTA, rota); renderRota(); }));
+      const n = Math.ceil(rota.length / 10);
+      $('rotaTrechos').innerHTML = Array.from({ length: n }, (_, i) => '<button type="button" data-t="' + i + '">🗺 ' + (n === 1 ? 'Abrir no Google Maps' : 'Abrir trecho ' + (i + 1) + ' (paradas ' + (i * 10 + 1) + '–' + Math.min(rota.length, i * 10 + 10) + ')') + '</button>').join('');
+      $('rotaTrechos').querySelectorAll('button').forEach(b => b.addEventListener('click', () => abrirTrecho(+b.dataset.t)));
+    }
+    function addRota(g) {
+      if (rota.some(p => p.lat === g.pos.lat && p.lng === g.pos.lng)) return;
+      rota.push({ lat: g.pos.lat, lng: g.pos.lng, nome: g.itens[0].end }); gravar(CHAVE_ROTA, rota); renderRota();
+    }
+    // ----- ponto de partida (fixo, mas pode ser alterado) -----
+    async function posPartida() {
+      if (partida.lat != null) return partida;
+      const pt = partida.txt.split(' - ').map(x => x.trim());
+      const qs = candidatos({ end: pt[0], bairro: pt[1] || '', municipio: 'Rio de Janeiro', uf: 'RJ' }).map(c => c[0]).concat([partida.txt + ', Brasil']);
+      try { for (const q of qs) { const r = await nominatim(q); if (r) { partida.lat = r.lat; partida.lng = r.lng; gravar(CHAVE_PARTIDA, partida); return partida; } } } catch (e) {}
+      return null;
+    }
+    $('inpPartida').value = partida.txt;
+    $('btnPartidaSalvar').addEventListener('click', async () => {
+      const t = $('inpPartida').value.trim();
+      if (!t) { $('msgPartida').textContent = 'Digite o endereço de partida.'; return; }
+      partida = { txt: t, lat: null, lng: null }; gravar(CHAVE_PARTIDA, partida);
+      $('msgPartida').textContent = 'Localizando…';
+      const r = await posPartida();
+      $('msgPartida').textContent = r ? '✔ Partida salva e localizada.' : '⚠ Partida salva, mas não consegui localizá-la para ordenar as paradas; o Google Maps usará o texto digitado.';
+    });
+    $('btnPartidaPadrao').addEventListener('click', () => { $('inpPartida').value = PARTIDA_PADRAO; $('btnPartidaSalvar').click(); });
+
+    // ----- abrir a rota no Google Maps (trechos de 10 paradas; o trecho seguinte parte da última parada do anterior) -----
+    async function abrirTrecho(t) {
+      const p = rota.slice(t * 10, t * 10 + 10); if (!p.length) return;
+      const ll = x => x.lat + ',' + x.lng;
+      let origem;
+      if (t === 0) { const ini = await posPartida(); origem = ini ? ll(ini) : partida.txt; } else origem = ll(rota[t * 10 - 1]);
+      window.open('https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=' + encodeURIComponent(origem) + '&destination=' + encodeURIComponent(ll(p[p.length - 1])) +
+        (p.length > 1 ? '&waypoints=' + encodeURIComponent(p.slice(0, -1).map(ll).join('|')) : ''), '_blank');
+    }
+    // ordena pelo mais próximo, começando pela partida
+    function ordenarPontos(lista, ini) {
+      const pts = lista.slice(), r = [], d = (a, b) => (a.lat - b.lat) ** 2 + (a.lng - b.lng) ** 2;
+      let cur = ini; if (!cur) { cur = pts.shift(); r.push(cur); }
+      while (pts.length) { let i = 0; pts.forEach((p, j) => { if (d(cur, p) < d(cur, pts[i])) i = j; }); cur = pts.splice(i, 1)[0]; r.push(cur); }
+      return r;
+    }
+    $('btnRotaOrdenar').addEventListener('click', async () => {
+      if (rota.length < 2) return;
+      rota = ordenarPontos(rota, await posPartida()); gravar(CHAVE_ROTA, rota); renderRota();
+    });
+    // rota automática: todas as empresas visíveis dos bairros marcados
+    async function gerarRotaAuto() {
+      const ks = new Set([...$('listaRotaBairros').querySelectorAll('input:checked')].map(i => i.dataset.k));
+      if (!ks.size) { alert('Marque pelo menos um bairro.'); return; }
+      const por = {};
+      visiveis().filter(e => ks.has(e.bairroKey || '')).forEach(e => { por[e.pos.lat.toFixed(5) + ',' + e.pos.lng.toFixed(5)] = por[e.pos.lat.toFixed(5) + ',' + e.pos.lng.toFixed(5)] || { lat: e.pos.lat, lng: e.pos.lng, nome: e.end }; });
+      const pts = Object.values(por);
+      if (!pts.length) { alert('Nenhuma empresa visível nesses bairros. Confira os filtros de status, APM, bairro e visitadas.'); return; }
+      if (rota.length && !confirm('Substituir a rota atual por uma rota automática com ' + pts.length + ' parada(s)?')) return;
+      rota = ordenarPontos(pts, await posPartida()); gravar(CHAVE_ROTA, rota); renderRota();
+    }
+    $('btnRotaAuto').addEventListener('click', gerarRotaAuto);
+    $('btnRotaBTodos').addEventListener('click', () => { bairros.forEach(b => b.k && rotaBairrosSel.add(b.k)); renderFiltro(); });
+    $('btnRotaBNenhum').addEventListener('click', () => { rotaBairrosSel.clear(); renderFiltro(); });
+    // exporta a rota (na ordem das paradas) para uma planilha
+    $('btnRotaExportar').addEventListener('click', () => {
+      if (!rota.length) { alert('A rota está vazia. Adicione paradas ou gere a rota automática.'); return; }
+      const vis = visiveis(), chave = x => x.lat.toFixed(5) + ',' + x.lng.toFixed(5);
+      const link0 = '';
+      const linhas = [{ 'PARADA': 0, 'EMPRESA': 'PONTO DE PARTIDA', 'CNPJ': '', 'BAIRRO': '', 'STATUS': '', 'TRECHO': '', 'ENDEREÇO': partida.txt, 'APM': '', 'OBS': '', 'VISITADA EM': '', 'GOOGLE MAPS': link0 }];
+      rota.forEach((p, i) => {
+        let emps = vis.filter(e => chave(e.pos) === chave(p));
+        if (!emps.length) emps = empresas.filter(e => e.pos && chave(e.pos) === chave(p));
+        const link = 'https://www.google.com/maps/search/?api=1&query=' + p.lat + ',' + p.lng;
+        (emps.length ? emps : [null]).forEach(e => linhas.push({
+          'PARADA': i + 1,
+          'EMPRESA': e ? e.razao + (e.fantasia && e.fantasia !== 'S/D' ? ' (' + e.fantasia + ')' : '') : '',
+          'CNPJ': e ? e.cnpj : '',
+          'BAIRRO': e ? (e.bairroKey ? nomeBairro(e.bairroKey) : e.bairro) : '',
+          'STATUS': e ? e.st : '',
+          'TRECHO': Math.floor(i / 10) + 1,
+          'ENDEREÇO': p.nome,
+          'APM': e ? apmDe(e) : '',
+          'OBS': e ? (e.obs || '') : '',
+          'VISITADA EM': e && trat[chaveEmp(e)] ? dataBR(trat[chaveEmp(e)].data) : '',
+          'GOOGLE MAPS': link
+        }));
+      });
+      const ws = XLSX.utils.json_to_sheet(linhas);
+      ws['!cols'] = [8, 42, 20, 20, 24, 8, 42, 20, 40, 12, 50].map(w => ({ wch: w }));
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Rota');
+      XLSX.writeFile(wb, 'rota_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+    });
+    $('btnRotaLimpar').addEventListener('click', () => { rota = []; gravar(CHAVE_ROTA, rota); renderRota(); });
+
+    // ===== EXPORTAR o que está visível no mapa =====
+    $('btnExportar').addEventListener('click', () => {
+      const v = visiveis(); if (!v.length) { alert('Nenhuma empresa visível no mapa para exportar.'); return; }
+      const linhas = v.map(e => ({
+        'Status': e.st, 'Razão Social': e.razao, 'Nome Fantasia': e.fantasia, 'CNPJ': e.cnpj, 'Endereço': e.end,
+        'Bairro': e.bairroKey ? nomeBairro(e.bairroKey) : e.bairro, 'APM': apmDe(e), 'Responsável pela Abordagem': e.resp, 'OBS': e.obs || '',
+        'Visitada em': trat[chaveEmp(e)] ? dataBR(trat[chaveEmp(e)].data) : '', 'Latitude': e.pos.lat, 'Longitude': e.pos.lng,
+        'Localização': e.corrigido ? 'Corrigida' : e.aprox ? 'Aproximada' : 'Exata'
+      }));
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), 'Empresas');
+      XLSX.writeFile(wb, 'empresas_mapa_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+    });
+
+    // guarda as coordenadas encontradas (sincronizadas) para que os outros usuários não precisem localizar de novo
+    function registrarPos() {
+      let mudou = false;
+      empresas.forEach(e => {
+        if (!e.pos || e.corrigido) return;
+        const k = chaveEmp(e);
+        if (!posAuto[k]) { posAuto[k] = { lat: +e.pos.lat.toFixed(6), lng: +e.pos.lng.toFixed(6), aprox: !!e.aprox }; mudou = true; }
+      });
+      if (mudou) gravar(CHAVE_POS, posAuto);
+    }
+
+    // ===== BAIRROS (agrupa ITANHANGÁ/ITANHANGA e nomes cortados, como "RECREIO DOS BANDEIR") =====
+    let bairros = [];                 // [{ k, nome, n }] em ordem alfabética
+    const nomeBairro = k => (bairros.find(b => b.k === k) || {}).nome || '(sem bairro)';
+    function montarBairros() {
+      const chaves = [...new Set(empresas.map(e => norm(e.bairro)).filter(Boolean))];
+      const canon = {};
+      chaves.forEach(k => {
+        const maior = chaves.filter(o => o.length > k.length && k.length >= 8 && o.startsWith(k)).sort((a, b) => b.length - a.length)[0];
+        canon[k] = maior || k;
+      });
+      const info = {};
+      empresas.forEach(e => {
+        const k = e.bairro ? canon[norm(e.bairro)] : '';
+        e.bairroKey = k;
+        const b = info[k] = info[k] || { k, n: 0, vars: {} };
+        b.n++;
+        if (norm(e.bairro) === k) b.vars[e.bairro] = (b.vars[e.bairro] || 0) + 1;
+      });
+      const temAcento = t => /[^\x00-\x7f]/.test(t);
+      bairros = Object.values(info).map(b => {
+        const v = Object.entries(b.vars).sort((a, c) => (temAcento(c[0]) - temAcento(a[0])) || c[1] - a[1])[0];
+        return { k: b.k, n: b.n, nome: b.k ? (v ? v[0] : b.k) : '(sem bairro)' };
+      }).sort((a, b) => (a.k ? 0 : 1) - (b.k ? 0 : 1) || a.nome.localeCompare(b.nome, 'pt-BR'));
+    }
+    function corBairro(k) {
+      if (!k) return '#9ca3af';
+      if (coresBairro.cores[k]) return coresBairro.cores[k];
+      const i = bairros.filter(b => b.k).findIndex(b => b.k === k);
+      return PALETA[(i < 0 ? 0 : i) % PALETA.length];
+    }
+
+    function renderBairros() {
+      $('chkCorBairro').checked = !!coresBairro.modo; $('chkCorApm').checked = !!coresBairro.apm; renderFiltro();
+      $('listaCores').innerHTML = bairros.map(b =>
+        '<label class="lin"><input type="color" data-k="' + esc(b.k) + '" value="' + corBairro(b.k) + '"><span title="' + esc(b.nome) + '">' + esc(b.nome) +
+        '</span><span class="n">' + b.n + '</span></label>').join('') || '<div class="nota">Sem bairros na planilha.</div>';
+      $('listaCores').querySelectorAll('input').forEach(i => i.addEventListener('change', () => {
+        coresBairro.cores[i.dataset.k] = i.value; gravar(CHAVE_CORES, coresBairro);
+        if (coresBairro.modo) desenharPins(false);
+      }));
+      const lista = [...new Set([...todosApms, ...empresas.map(e => e.resp), ...Object.values(apmBairro)].filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      $('listaApm').innerHTML = bairros.filter(b => b.k).map(b =>
+        '<div class="lin"><span title="' + esc(b.nome) + '">' + esc(b.nome) + '</span><select data-k="' + esc(b.k) + '"><option value="">— sem APM —</option>' +
+        lista.map(a => '<option' + (apmBairro[b.k] === a ? ' selected' : '') + '>' + esc(a) + '</option>').join('') + '</select></div>').join('') || '<div class="nota">Sem bairros na planilha.</div>';
+      $('listaApm').querySelectorAll('select').forEach(sel => sel.addEventListener('change', () => {
+        sel.value ? apmBairro[sel.dataset.k] = sel.value : delete apmBairro[sel.dataset.k];
+        gravar(CHAVE_APM, apmBairro); renderFiltro(); desenharPins(false);
+      }));
+    }
+    $('chkCorBairro').addEventListener('change', e => { coresBairro.modo = e.target.checked; if (e.target.checked) { coresBairro.apm = false; $('chkCorApm').checked = false; } gravar(CHAVE_CORES, coresBairro); desenharPins(false); });
+    $('chkCorApm').addEventListener('change', e => { coresBairro.apm = e.target.checked; if (e.target.checked) { coresBairro.modo = false; $('chkCorBairro').checked = false; } gravar(CHAVE_CORES, coresBairro); desenharPins(false); });
+    $('btnCoresAuto').addEventListener('click', () => { coresBairro.cores = {}; gravar(CHAVE_CORES, coresBairro); renderBairros(); desenharPins(false); });
+    $('btnLimparApm').addEventListener('click', () => {
+      if (!Object.keys(apmBairro).length || !confirm('Remover todas as associações de APM por bairro?')) return;
+      apmBairro = {}; gravar(CHAVE_APM, apmBairro); renderBairros();
+    });
+
+    // ===== IMPORTAR OUTRA PLANILHA (substitui os dados deste mapa) =====
+    function importarArquivo(file) {
+      const csv = /\.csv$/i.test(file.name);
+      const r = new FileReader();
+      r.onload = e => {
+        try {
+          const wb = csv ? XLSX.read(String(e.target.result).replace(/^\uFEFF/, ''), { type: 'string', raw: true })
+                         : XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+          const linhas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+          const emp = extrair(linhas);
+          if (!emp) { alert('Não encontrei as colunas de status ("Status da Empresa" / "StatusEmpresa") e de endereço ("Endereço da UC" / "Endereco").'); return; }
+          try { localStorage.setItem(CHAVE_OUTRA, JSON.stringify({ nome: file.name, empresas: emp, apms: ultimoApms, bairros: ultimoBairros })); }
+          catch (err) { alert('Não foi possível guardar a planilha no navegador; ela será usada só até recarregar a página.'); }
+          empresas = emp; todosApms = ultimoApms; todosBairros = ultimoBairros;
+          fonteTxt = 'Planilha importada neste mapa: <b>' + esc(file.name) + '</b>';
+          $('btnPainel').style.display = '';
+          iniciarDados();
+        } catch (err) { alert('Não foi possível ler o arquivo como planilha.'); console.error(err); }
+      };
+      csv ? r.readAsText(file, 'UTF-8') : r.readAsArrayBuffer(file);
+    }
+    $('btnImportar').addEventListener('click', () => $('arquivo').click());
+    $('arquivo').addEventListener('change', e => { if (e.target.files[0]) importarArquivo(e.target.files[0]); e.target.value = ''; });
+    $('btnPainel').addEventListener('click', () => { localStorage.removeItem(CHAVE_OUTRA); iniciarDados(true); });
+    $('btnFiltros').addEventListener('click', () => $('lateral').classList.toggle('fechado'));
+    ['busca', 'acoes', 'lateral'].forEach(id => { L.DomEvent.disableClickPropagation($(id)); L.DomEvent.disableScrollPropagation($(id)); });
+
+    // se a planilha do painel mudar em outra aba, atualiza aqui (a menos que haja planilha própria)
+    window.addEventListener('storage', e => { if (e.key === CHAVE_PAINEL && !localStorage.getItem(CHAVE_OUTRA)) iniciarDados(true); });
+
+    // ===== GEOLOCALIZAÇÃO DOS ENDEREÇOS (OpenStreetMap/Nominatim, com cache) =====
+    const cache = lerJSON(CHAVE_GEO) || {};
+    const salvarCache = () => { try { localStorage.setItem(CHAVE_GEO, JSON.stringify(cache)); } catch (e) {} };
+    let ultimaChamada = 0, execId = 0;
+
+    function ruaLimpa(r) {
+      return r.replace(/^AV\.?\s+/i, 'Avenida ').replace(/^R\.?\s+/i, 'Rua ').replace(/^(EST|ESTR)\.?\s+/i, 'Estrada ')
+              .replace(/^TRAV\.?\s+/i, 'Travessa ').replace(/^PC[AÇ]?\.?\s+/i, 'Praça ').replace(/^DAS AMERICAS/i, 'Avenida das Americas');
+    }
+    function candidatos(e) {
+      const m = e.end.match(/^([^,]+),\s*(\d+)/);
+      const rua = ruaLimpa((m ? m[1] : e.end.split(',')[0]).trim()), num = m ? m[2] : '';
+      const cid = e.municipio + ', ' + e.uf + ', Brasil';
+      const l = [];
+      if (num) {
+        l.push([rua + ' ' + num + ', ' + e.bairro + ', ' + cid, false]);
+        l.push([rua + ' ' + num + ', ' + cid, false]);
+      }
+      l.push([rua + ', ' + e.bairro + ', ' + cid, true]);
+      return l;
+    }
+    async function pedir(url) {
+      for (let t = 0; t < 3; t++) {
+        const dt = Date.now() - ultimaChamada;
+        if (dt < 1100) await espera(1100 - dt);
+        ultimaChamada = Date.now();
+        const r = await fetch(url);
+        if (r.status === 429 || r.status === 503) { await espera(5000); continue; }
+        if (!r.ok) return null;
+        return r.json();
+      }
+      return null;
+    }
+    const dentroRJ = (lat, lng) => lat > -23.4 && lat < -20.7 && lng > -44.9 && lng < -40.9;
+
+    async function nominatim(q) {
+      if (cache[q] !== undefined) return cache[q];
+      const j = await pedir('https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=br&q=' + encodeURIComponent(q));
+      if (j === null) throw new Error('rede');
+      const r = j[0];
+      if (r) {
+        const lat = parseFloat(r.lat), lng = parseFloat(r.lon);
+        if (dentroRJ(lat, lng)) return cache[q] = { lat, lng, aprox: !(r.address && r.address.house_number) };
+      }
+      return cache[q] = null;
+    }
+    async function porCep(cep) {
+      const k = 'CEP:' + cep;
+      if (cache[k] !== undefined) return cache[k];
+      if (cep.length !== 8) return null;
+      const dt = Date.now() - ultimaChamada; if (dt < 300) await espera(300 - dt);
+      ultimaChamada = Date.now();
+      try {
+        const r = await fetch('https://cep.awesomeapi.com.br/json/' + cep);
+        if (r.ok) {
+          const j = await r.json(), lat = parseFloat(j.lat), lng = parseFloat(j.lng);
+          if (!isNaN(lat) && dentroRJ(lat, lng)) return cache[k] = { lat, lng, aprox: true };
+        }
+      } catch (e) {}
+      return cache[k] = null;
+    }
+
+    async function localizarTodas() {
+      const id = ++execId;
+      const pend = empresas.filter(e => !e.pos && e.end);
+      let feitas = 0, falhasRede = 0, nova = 0;
+      for (const e of pend) {
+        if (id !== execId) return;
+        try {
+          for (const [q, fa] of candidatos(e)) {
+            const r = await nominatim(q);
+            if (r) { e.pos = { lat: r.lat, lng: r.lng }; e.aprox = r.aprox || fa; break; }
+          }
+          if (!e.pos) { const r = await porCep(e.cep); if (r) { e.pos = { lat: r.lat, lng: r.lng }; e.aprox = true; } }
+          falhasRede = 0;
+        } catch (err) {
+          if (++falhasRede >= 3) { $('aviso').style.display = ''; $('aviso').textContent = 'Sem resposta do serviço de localização. Verifique a internet e recarregue a página.'; break; }
+        }
+        e.tentou = true;
+        feitas++;
+        if (e.pos) nova++;
+        if (feitas % 5 === 0) { $('aviso').style.display = ''; $('aviso').textContent = 'Localizando endereços… ' + feitas + ' / ' + pend.length; redesenharSeLivre(false); salvarCache(); registrarPos(); }
+      }
+      if (id !== execId) return;
+      salvarCache(); registrarPos();
+      $('aviso').style.display = 'none';
+      redesenharSeLivre(true);
+    }
+
+    // ===== PINS =====
+    const camadaPins = L.featureGroup().addTo(map);
+    const ativos = new Set(Object.keys(STATUS));
+    let grupos = [];
+
+    // Redesenhar os pinos fecha a janela aberta; por isso, se houver uma janela aberta (ex.: corrigindo um endereço),
+    // o redesenho automático da localização em segundo plano espera ela fechar.
+    let janelaAberta = false, redesenhoPendente = null;
+    map.on('popupopen', () => { janelaAberta = true; });
+    map.on('popupclose', () => {
+      janelaAberta = false;
+      if (redesenhoPendente !== null && !marcando) { const aj = redesenhoPendente; redesenhoPendente = null; desenharPins(aj); }
+    });
+    function redesenharSeLivre(ajustar) {
+      if (janelaAberta) { redesenhoPendente = !!(ajustar || redesenhoPendente); return; }
+      redesenhoPendente = null;
+      desenharPins(ajustar);
+    }
+
+    function iconePin(cor, n, centro) {
+      const svg = '<svg width="30" height="40" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg">' +
+        '<path d="M15 1C7.3 1 1 7.2 1 14.8 1 25 15 39 15 39s14-14 14-24.2C29 7.2 22.7 1 15 1z" fill="' + cor + '" stroke="#fff" stroke-width="2"/>' +
+        (n > 1 ? '<text x="15" y="19" text-anchor="middle" font-size="12" font-weight="bold" font-family="Arial" fill="#fff" stroke="rgba(0,0,0,.45)" stroke-width=".6">' + n + '</text>'
+               : '<circle cx="15" cy="14.5" r="' + (centro ? 5.5 : 4.5) + '" fill="' + (centro || '#fff') + '"' + (centro ? ' stroke="#fff" stroke-width="1.8"' : '') + '/>') + '</svg>';
+      return L.divIcon({ html: svg, className: 'pin-empresa', iconSize: [30, 40], iconAnchor: [15, 39], tooltipAnchor: [0, -34], popupAnchor: [0, -34] });
+    }
+    const selo = st => '<span class="bd" style="background:' + STATUS[st] + '">' + esc(st) + '</span>';
+    const nomeEmp = e => esc(e.razao) + (e.fantasia && e.fantasia !== 'S/D' ? ' (' + esc(e.fantasia) + ')' : '');
+    const linhaBairro = (e, cls) => {
+      if (!e.bairroKey) return '';
+      const apm = apmBairro[e.bairroKey];
+      return '<br>Bairro: ' + esc(nomeBairro(e.bairroKey)) + (apm ? ' · APM: ' + (cls ? '<span class="' + cls + '">' + esc(apm) + '</span>' : '<b>' + esc(apm) + '</b>') : '');
+    };
+    const linhaObs0 = (e, ttip) => e.obs ? '<br>📝 ' + (ttip ? esc(e.obs.length > 140 ? e.obs.slice(0, 140) + '…' : e.obs) : '<i>' + esc(e.obs) + '</i>') : '';
+    const notaLocal = (g, ttip) => g.itens.every(e => e.corrigido) ? (ttip ? '<div class="ok">✔ Local corrigido</div>' : '<div style="color:#15803d;font-size:12px">✔ Local corrigido</div>')
+      : g.itens.some(e => e.aprox) ? (ttip ? '<div class="aprox">⚠ Localização aproximada</div>' : '<div style="color:#b45309;font-size:12px">⚠ Localização aproximada</div>') : '';
+
+    function tooltipGrupo(g) {
+      const it = g.itens.slice(0, 8).map(e =>
+        '<div class="emp" style="border-color:' + STATUS[e.st] + '">' + selo(e.st) + '<br>' + nomeEmp(e) + linhaBairro(e, 'apm') + linhaObs(e, true) + '</div>').join('');
+      return '<div class="end">' + esc(g.itens[0].end) + '</div>' + it +
+        (g.itens.length > 8 ? '<div class="emp">+ ' + (g.itens.length - 8) + ' empresa(s)… clique para ver todas</div>' : '') + notaLocal(g, true);
+    }
+
+    // ----- popup (com correção do endereço) -----
+    function popupGrupo(g) {
+      const el = document.createElement('div');
+      el.className = 'popup-emp';
+      // Ao trocar o conteúdo da janela, o botão clicado deixa de existir no meio do clique e o Leaflet passa a achar
+      // que o clique foi no mapa (o que fecha a janela). Parar a propagação aqui evita isso.
+      el.addEventListener('click', ev => ev.stopPropagation());
+      desenharPopup(el, g);
+      return el;
+    }
+    function desenharPopup(el, g) {
+      const it = g.itens.map((e, i) =>
+        '<div class="it" style="border-color:' + STATUS[e.st] + '">' + selo(e.st) + '<br><b>' + nomeEmp(e) + '</b>' +
+        (e.cnpj ? '<br>CNPJ: ' + esc(e.cnpj) : '') + linhaBairro(e) + linhaObs(e, false) +
+        (e.resp ? '<br>Responsável: ' + esc(e.resp) : '') +
+        '<br><a href="#" class="corrigir" data-i="' + i + '">✏️ Corrigir local</a> · <a href="#" class="visitar" data-i="' + i + '">' + (trat[chaveEmp(e)] ? '↩ Desmarcar visita' : '✅ Marcar visitada') + '</a></div>').join('');
+      el.innerHTML = '<b>' + esc(g.itens[0].end) + '</b>' + it + notaLocal(g, false) +
+        '<div style="margin-top:6px"><a target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + g.pos.lat + ',' + g.pos.lng + '">Abrir no Google Maps</a> · <a href="#" class="addrota">🚗 Adicionar à rota</a></div>';
+      el.querySelectorAll('.corrigir').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); formCorrecao(el, g, g.itens[+a.dataset.i]); }));
+      el.querySelectorAll('.visitar').forEach(a => a.addEventListener('click', ev => { ev.preventDefault(); alternarVisita(g.itens[+a.dataset.i], el, g); }));
+      el.querySelector('.addrota').addEventListener('click', ev => { ev.preventDefault(); addRota(g); ev.target.textContent = '✔ Na rota'; });
+    }
+
+    // ----- correção do endereço / local -----
+    const chaveEmp = e => (String(e.cnpj).replace(/\D/g, '') || norm(e.razao)) + '|' + norm(e.endOrig != null ? e.endOrig : e.end);
+    let marcando = null;   // empresa aguardando o clique no mapa
+
+    function salvarBairro(e, txt) {
+      const c = correcoes[chaveEmp(e)] || {};
+      c.bairro = txt; correcoes[chaveEmp(e)] = c; gravar(CHAVE_CORRECOES, correcoes);
+      e.bairro = txt;
+      map.closePopup();
+      montarBairros(); renderBairros(); desenharPins(false);
+      const g = grupos.find(g => g.itens.includes(e));
+      if (g) g.marker.openTooltip();
+    }
+    const temCorrecaoLocal = e => { const c = correcoes[chaveEmp(e)]; return !!(c && (c.lat != null || c.end || c.bairro)); };
+    function guardarObs(e, c, txt) { if (txt) c.obs = txt; else delete c.obs; e.obs = txt || ''; }
+    function salvarObs(e, txt) {
+      const c = correcoes[chaveEmp(e)] || {};
+      guardarObs(e, c, txt);
+      if (Object.keys(c).length) correcoes[chaveEmp(e)] = c; else delete correcoes[chaveEmp(e)];
+      gravar(CHAVE_CORRECOES, correcoes);
+      map.closePopup(); desenharPins(false);
+      const g = grupos.find(g => g.itens.includes(e));
+      if (g) g.marker.openTooltip();
+    }
+    function aplicarCorrecao(e, pos, endTxt, bairroTxt, obsTxt) {
+      const c = correcoes[chaveEmp(e)] || {};
+      Object.assign(c, { lat: pos.lat, lng: pos.lng, end: endTxt });
+      if (bairroTxt) c.bairro = bairroTxt;
+      if (obsTxt !== undefined) guardarObs(e, c, obsTxt);
+      correcoes[chaveEmp(e)] = c;
+      gravar(CHAVE_CORRECOES, correcoes);
+      e.end = endTxt; e.pos = { lat: pos.lat, lng: pos.lng }; e.aprox = false; e.corrigido = true;
+      if (bairroTxt) e.bairro = bairroTxt;
+      map.closePopup();
+      montarBairros(); renderBairros();
+      desenharPins(false);
+      map.setView([pos.lat, pos.lng], Math.max(map.getZoom(), 17));
+      const g = grupos.find(g => g.itens.includes(e));
+      if (g) g.marker.openTooltip();
+    }
+    function cancelarMarcacao() {
+      if (!marcando) return;
+      marcando = null; map.getContainer().style.cursor = '';
+      if (!empresas.some(e => !e.pos && e.end && !e.tentou)) $('aviso').style.display = 'none';
+    }
+    map.on('click', ev => {
+      if (!marcando) return;
+      const e = marcando, txt = e.endTxtNovo || e.end, bai = e.bairroTxtNovo, obs = e.obsTxtNovo;
+      delete e.endTxtNovo; delete e.bairroTxtNovo; delete e.obsTxtNovo;
+      cancelarMarcacao();
+      aplicarCorrecao(e, ev.latlng, txt, bai, obs);
+    });
+    document.addEventListener('keydown', ev => { if (ev.key === 'Escape') cancelarMarcacao(); });
+
+    // Bairros da planilha (todas as linhas), sem repetir variações de acento nem nomes cortados
+    function listaBairrosPlanilha() {
+      const nomes = [...todosBairros, ...bairros.filter(b => b.k).map(b => b.nome)].filter(Boolean);
+      const acento = t => /[^\x00-\x7f]/.test(t);
+      const porChave = {};
+      nomes.forEach(n => { const k = norm(n), at = porChave[k]; if (!at || (acento(n) && !acento(at))) porChave[k] = n; });
+      const ks = Object.keys(porChave);
+      return ks.filter(k => !ks.some(o => o.length > k.length && k.length >= 8 && o.startsWith(k)))
+               .map(k => porChave[k]).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    }
+
+    function opcoesBairro(e) {
+      const atual = e.bairroKey ? nomeBairro(e.bairroKey) : (e.bairro || '');
+      const lista = listaBairrosPlanilha();
+      if (atual && !lista.some(n => norm(n) === norm(atual))) lista.push(atual);
+      return (atual ? '' : '<option value="">— selecione —</option>') +
+        lista.map(n => '<option' + (norm(n) === norm(atual) ? ' selected' : '') + '>' + esc(n) + '</option>').join('') +
+        '<option value="__outro__">✏️ Outro (digitar)…</option>';
+    }
+
+    function formCorrecao(el, g, e) {
+      el.innerHTML = '<b>Corrigir o local de</b><br>' + nomeEmp(e) +
+        '<label style="display:block;margin-top:8px;font-size:12px">Endereço correto (rua, número):' +
+        '<input class="cx-end" type="text" value="' + esc(e.end) + '"></label>' +
+        '<label style="display:block;margin-top:6px;font-size:12px">Bairro:' +
+        '<select class="cx-end cx-bairro">' + opcoesBairro(e) + '</select>' +
+        '<input class="cx-end cx-bairro-novo" type="text" placeholder="Digite o nome do bairro" style="display:none"></label>' +
+        '<label style="display:block;margin-top:6px;font-size:12px">Observação (OBS):' +
+        '<textarea class="cx-end cx-obs" rows="2" placeholder="Ex.: empresa mudou de endereço, portaria pede agendamento…">' + esc(e.obs || '') + '</textarea></label>' +
+        '<div class="cx-linha"><button type="button" class="cx-buscar">🔎 Buscar este endereço</button>' +
+        '<button type="button" class="cx-clicar">📍 Marcar no mapa</button></div>' +
+        '<div class="cx-linha"><button type="button" class="cx-salvarb">💾 Salvar só o bairro</button>' +
+        '<button type="button" class="cx-salvaro">📝 Incluir OBS</button></div>' +
+        '<div class="cx-linha"><button type="button" class="cx-voltar sec">Voltar</button>' +
+        (temCorrecaoLocal(e) ? '<button type="button" class="cx-restaurar sec">Restaurar original</button>' : '') + '</div>' +
+        '<div class="cx-msg">Se a busca não achar o ponto certo, use "Marcar no mapa" e clique no local exato. O bairro e a OBS também são salvos junto com a busca ou a marcação.</div>';
+      const campo = el.querySelector('.cx-end'), campoB = el.querySelector('.cx-bairro'), campoBN = el.querySelector('.cx-bairro-novo'), campoO = el.querySelector('.cx-obs'), msg = el.querySelector('.cx-msg');
+      const valorBairro = () => campoB.value === '__outro__' ? campoBN.value.trim() : campoB.value.trim();
+      campoB.addEventListener('change', () => { campoBN.style.display = campoB.value === '__outro__' ? '' : 'none'; if (campoB.value === '__outro__') campoBN.focus(); });
+      el.querySelector('.cx-voltar').addEventListener('click', () => desenharPopup(el, g));
+      el.querySelector('.cx-buscar').addEventListener('click', async () => {
+        const txt = campo.value.trim();
+        if (!txt) { msg.textContent = 'Digite o endereço.'; return; }
+        msg.textContent = 'Buscando…';
+        try {
+          for (const [q] of candidatos({ end: txt, bairro: valorBairro() || e.bairro, municipio: e.municipio, uf: e.uf })) {
+            const r = await nominatim(q);
+            if (r) { salvarCache(); aplicarCorrecao(e, r, txt, valorBairro(), campoO.value.trim()); return; }
+          }
+          msg.textContent = 'Endereço não encontrado. Ajuste o texto ou use "Marcar no mapa".';
+        } catch (err) { msg.textContent = 'Sem resposta do serviço de busca. Tente "Marcar no mapa".'; }
+      });
+      el.querySelector('.cx-clicar').addEventListener('click', () => {
+        e.endTxtNovo = campo.value.trim() || e.end; e.bairroTxtNovo = valorBairro(); e.obsTxtNovo = campoO.value.trim();
+        marcando = e; map.closePopup(); map.getContainer().style.cursor = 'crosshair';
+        $('aviso').style.display = ''; $('aviso').textContent = 'Clique no mapa no local correto de ' + e.razao + '. (Esc cancela)';
+      });
+      el.querySelector('.cx-salvarb').addEventListener('click', () => {
+        const b = valorBairro();
+        if (!b) { msg.textContent = 'Digite o bairro.'; return; }
+        salvarBairro(e, b);
+      });
+      el.querySelector('.cx-salvaro').addEventListener('click', () => salvarObs(e, campoO.value.trim()));
+      const rest = el.querySelector('.cx-restaurar');
+      if (rest) rest.addEventListener('click', () => {
+        const c = correcoes[chaveEmp(e)] || {};
+        delete c.lat; delete c.lng; delete c.end; delete c.bairro;          // a OBS é mantida
+        if (Object.keys(c).length) correcoes[chaveEmp(e)] = c; else delete correcoes[chaveEmp(e)];
+        gravar(CHAVE_CORRECOES, correcoes);
+        map.closePopup(); iniciarDados(false);
+      });
+    }
+
+    function visiveis() {
+      return empresas.filter(e => e.pos && ativos.has(e.st) && !bairrosOff.has(e.bairroKey || '') && (!apmSel || apmDe(e) === apmSel) && !(ocultarTrat && trat[chaveEmp(e)]));
+    }
+
+    function desenharPins(ajustar) {
+      camadaPins.clearLayers();
+      const por = {};
+      visiveis().forEach(e => {
+        const k = e.pos.lat.toFixed(5) + ',' + e.pos.lng.toFixed(5);
+        (por[k] = por[k] || { pos: e.pos, itens: [] }).itens.push(e);
+      });
+      grupos = Object.values(por);
+      grupos.forEach(g => {
+        const sts = [...new Set(g.itens.map(e => e.st))];
+        let cor = sts.length === 1 ? STATUS[sts[0]] : COR_MISTO, centro = null;
+        if (coresBairro.modo) {
+          const bs = [...new Set(g.itens.map(e => e.bairroKey))];
+          cor = bs.length === 1 ? corBairro(bs[0]) : COR_MISTO;
+          centro = sts.length === 1 ? STATUS[sts[0]] : '#ffffff';
+        } else if (coresBairro.apm) {
+          const as = [...new Set(g.itens.map(apmDe))];
+          cor = as.length > 1 ? COR_MISTO : as[0] ? corApm(as[0]) : '#9ca3af';
+          centro = sts.length === 1 ? STATUS[sts[0]] : '#ffffff';
+        }
+        const mk = L.marker([g.pos.lat, g.pos.lng], { icon: iconePin(cor, g.itens.length, centro), riseOnHover: true, opacity: g.itens.every(e => trat[chaveEmp(e)]) ? 0.45 : 1 });
+        mk.bindTooltip(() => tooltipGrupo(g), { direction: 'top', className: 'setor-tooltip', opacity: 1 });
+        mk.bindPopup(() => popupGrupo(g), { maxWidth: 340 });
+        g.marker = mk;
+        mk.addTo(camadaPins);
+      });
+      if (ajustar && grupos.length) map.fitBounds(camadaPins.getBounds(), { padding: [50, 50], maxZoom: 17 });
+      atualizarLegenda();
+    }
+
+    // ===== LEGENDA / FILTROS =====
+    function atualizarLegenda() {
+      const cont = {};
+      empresas.forEach(e => cont[e.st] = (cont[e.st] || 0) + 1);
+      $('legenda').innerHTML = Object.keys(STATUS).map(s =>
+        '<label' + (cont[s] ? '' : ' class="zero"') + '><input type="checkbox" data-s="' + s + '"' + (ativos.has(s) ? ' checked' : '') + '>' +
+        '<span class="dot" style="background:' + STATUS[s] + '"></span>' + esc(s) + '<span class="n">' + (cont[s] || 0) + '</span></label>').join('');
+      $('legenda').querySelectorAll('input').forEach(i => i.addEventListener('change', () => {
+        i.checked ? ativos.add(i.dataset.s) : ativos.delete(i.dataset.s);
+        desenharPins(false);
+      }));
+      $('fonte').innerHTML = fonteTxt;
+      const sem = empresas.filter(e => !e.pos && (e.tentou || !e.end));
+      $('semLoc').style.display = sem.length ? '' : 'none';
+      $('semTit').textContent = sem.length + ' empresa(s) sem localização';
+      $('semLista').innerHTML = sem.map(e => '<li>' + esc(e.razao) + ' — ' + esc(e.st) + '<br>' + (e.end ? esc(e.end) : '(sem endereço)') + '</li>').join('');
+      const loc = empresas.filter(e => e.pos).length;
+      $('rodape').textContent = empresas.length + ' empresa(s) · ' + loc + ' localizada(s) · ' + grupos.length + ' ponto(s) no mapa · ' + nuvem.txt;
+    }
+
+    $('btnTodos').addEventListener('click', () => { Object.keys(STATUS).forEach(s => ativos.add(s)); desenharPins(false); });
+    $('btnNenhum').addEventListener('click', () => { ativos.clear(); desenharPins(false); });
+
+    // ===== BUSCA (empresa, CNPJ ou endereço) =====
+    function buscar() {
+      const msg = $('buscaMsg'); msg.className = ''; msg.textContent = '';
+      const q = norm($('buscaTxt').value), qd = q.replace(/\D/g, '');
+      if (!q) { msg.textContent = 'Digite algo.'; return; }
+      const g = grupos.find(g => g.itens.some(e =>
+        norm([e.razao, e.fantasia, e.end, e.bairro].join(' ')).includes(q) || (qd.length >= 4 && e.cnpj.replace(/\D/g, '').includes(qd))));
+      if (!g) { msg.textContent = 'Não encontrada.'; return; }
+      map.setView([g.pos.lat, g.pos.lng], Math.max(map.getZoom(), 17));
+      g.marker.openTooltip();
+    }
+    $('buscaBtn').addEventListener('click', buscar);
+    $('buscaTxt').addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); });
+    $('buscaTxt').addEventListener('input', () => $('buscaMsg').textContent = '');
+
+    // ===== INÍCIO =====
+    function iniciarDados(recarregar) {
+      if (recarregar) carregarDados();
+      empresas.forEach(e => {
+        delete e.pos; delete e.tentou; delete e.corrigido; delete e.obs;
+        if (e.endOrig !== undefined) e.end = e.endOrig; else e.endOrig = e.end;
+        if (e.bairroOrig !== undefined) e.bairro = e.bairroOrig; else e.bairroOrig = e.bairro;
+        const c = correcoes[chaveEmp(e)];            // correções feitas pelo usuário valem mais que a localização automática
+        if (c) {
+          if (c.end) e.end = c.end;
+          if (c.bairro) e.bairro = c.bairro;
+          if (c.obs) e.obs = c.obs;
+          if (c.lat != null) { e.pos = { lat: c.lat, lng: c.lng }; e.aprox = false; e.corrigido = true; }
+        }
+        const pa = !e.pos && posAuto[chaveEmp(e)]; if (pa) { e.pos = { lat: pa.lat, lng: pa.lng }; e.aprox = !!pa.aprox; }
+      });
+      montarBairros();
+      renderBairros();
+      // aproveita o que já está no cache antes de consultar a internet
+      empresas.forEach(e => {
+        if (!e.end || e.pos) return;
+        for (const [q, fa] of candidatos(e)) { const r = cache[q]; if (r) { e.pos = { lat: r.lat, lng: r.lng }; e.aprox = r.aprox || fa; break; } }
+      });
+      registrarPos();
+      desenharPins(true);
+      const faltam = empresas.some(e => !e.pos && e.end);
+      if (faltam) { $('aviso').style.display = ''; $('aviso').textContent = 'Localizando endereços…'; localizarTodas(); }
+      else { $('aviso').style.display = 'none'; }
+      if (!empresas.length) { $('aviso').style.display = ''; $('aviso').textContent = fonteTxt.replace(/<[^>]+>/g, ''); }
+    }
+
+    (async () => {
+      try {
+        if (!(await acessoOk)) return;
+        carregarDados();
+        await nuvemCarregar(); renderRota();
+        iniciarDados(false);
+      } catch (e) {
+        console.error(e);
+        $('aviso').textContent = 'Erro ao carregar o mapa: ' + e.message;
+      }
+    })();
+  </script>
+</body>
+</html>

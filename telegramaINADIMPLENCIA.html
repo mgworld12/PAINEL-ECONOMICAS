@@ -1,0 +1,2631 @@
+<!DOCTYPE html>
+
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Telegramas Econômicas - IBGE</title>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    background: #f2f4f7;
+    color: #222;
+}
+
+
+/* =========================================================
+   TOPO
+========================================================= */
+
+.topo {
+    background: #003b70;
+    color: white;
+    padding: 20px;
+    text-align: center;
+}
+
+.topo h1 {
+    margin: 0;
+    font-size: 26px;
+}
+
+.topo p {
+    margin: 8px 0 0;
+    font-size: 15px;
+}
+
+
+/* =========================================================
+   CONTAINER
+========================================================= */
+
+.container {
+    max-width: 1500px;
+    margin: auto;
+    padding: 20px;
+}
+
+
+/* =========================================================
+   IMPORTAÇÃO
+========================================================= */
+
+.painel-importacao {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+#arquivo {
+    display: none;
+}
+
+.linha-importacao {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.status {
+    margin: 0;
+    font-weight: bold;
+    color: #0060b5;
+}
+
+.campos-telegrama {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.painel-campos {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.painel-campos h2 {
+    margin-top: 0;
+    color: #003b70;
+}
+
+.linha-campo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.linha-campo label {
+    font-weight: bold;
+    color: #003b70;
+    min-width: 300px;
+}
+
+.input-medio,
+.input-ano {
+    border: 1px solid #c8d2dc;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: #003b70;
+    font-weight: bold;
+    background: #f8fafc;
+}
+
+.input-medio {
+    width: 260px;
+}
+
+.input-ano {
+    width: 90px;
+    text-align: center;
+}
+
+.input-data {
+    border: 1px solid #c8d2dc;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+    color: #003b70;
+    font-weight: bold;
+    background: #f8fafc;
+    width: 120px;
+    text-align: center;
+}
+
+.input-data:focus {
+    outline: none;
+    border-color: #0056a6;
+    box-shadow: 0 0 0 2px rgba(0,86,166,0.15);
+}
+
+.input-data.invalido {
+    border-color: #c62828;
+    background: #fdecea;
+    box-shadow: 0 0 0 2px rgba(198,40,40,0.15);
+}
+
+.erro-data {
+    color: #c62828;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.input-medio:focus,
+.input-ano:focus {
+    outline: none;
+    border-color: #0056a6;
+    box-shadow: 0 0 0 2px rgba(0,86,166,0.15);
+}
+
+.campo-preenchido {
+    color: #8a97a6;
+    opacity: 0.7;
+}
+
+.campo-preenchido:focus {
+    color: #003b70;
+    opacity: 1;
+}
+
+
+/* =========================================================
+   BOTÕES
+========================================================= */
+
+.btn {
+    border: none;
+    padding: 9px 15px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: 0.2s;
+}
+
+.btn-importar {
+    background: #007a3d;
+    color: white;
+}
+
+.btn-importar:hover {
+    background: #005c2e;
+}
+
+.btn-pagina {
+    background: #555;
+    color: white;
+}
+
+.btn-pagina:hover {
+    background: #333;
+}
+
+
+/* =========================================================
+   PAINEL CNPJs
+========================================================= */
+
+.painel-cnpjs {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.painel-cnpjs h2 {
+    margin-top: 0;
+    color: #003b70;
+}
+
+
+/* =========================================================
+   GRADE CNPJs
+========================================================= */
+
+.grade-cnpjs {
+    display: grid;
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+    gap: 5px;
+    width: 100%;
+}
+
+
+/* =========================================================
+   CNPJ
+========================================================= */
+
+.cnpj-item {
+    padding: 6px 2px;
+    text-align: center;
+
+    border: 1px solid #c8d2dc;
+    border-radius: 4px;
+
+    background: #f8fafc;
+    color: #003b70;
+
+    cursor: pointer;
+
+    font-size: 10px;
+    font-weight: bold;
+
+    transition:
+        background 0.2s,
+        color 0.2s,
+        transform 0.15s,
+        box-shadow 0.2s;
+
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+    min-width: 0;
+}
+
+
+/* =========================================================
+   MOUSE OVER
+========================================================= */
+
+.cnpj-item:hover {
+    background: #003b70;
+    color: white;
+    border-color: #002b52;
+
+    transform: scale(1.08);
+
+    box-shadow:
+        0 3px 8px rgba(0,0,0,0.20);
+
+    z-index: 2;
+}
+
+
+/* =========================================================
+   CNPJ SELECIONADO
+========================================================= */
+
+.cnpj-item.ativo {
+    background: #007a3d;
+    color: white;
+    border-color: #005c2e;
+}
+
+
+/* =========================================================
+   NAVEGAÇÃO
+========================================================= */
+
+.navegacao-cnpjs {
+    margin-top: 15px;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    gap: 10px;
+}
+
+#paginaInfo {
+    font-weight: bold;
+    color: #003b70;
+}
+
+
+/* =========================================================
+   OFÍCIO
+========================================================= */
+
+.painel-oficio {
+    background: white;
+    padding: 20px;
+    border-radius: 10px;
+
+    box-shadow:
+        0 2px 8px rgba(0,0,0,0.08);
+}
+
+.painel-oficio h2 {
+    margin-top: 0;
+    color: #003b70;
+}
+
+
+/* =========================================================
+   INFORMAÇÕES
+========================================================= */
+
+.empresa-info {
+    background: #f7f9fb;
+
+    border-left: 5px solid #003b70;
+
+    padding: 14px;
+
+    margin-bottom: 20px;
+
+    line-height: 1.8;
+
+    font-size: 15px;
+
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+}
+
+.empresa-info strong {
+    color: #003b70;
+}
+
+
+/* =========================================================
+   SEÇÕES
+========================================================= */
+
+.secao {
+    border: 1px solid #d6d6d6;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    overflow: visible;
+}
+
+
+/* =========================================================
+   TÍTULO + COPIAR
+========================================================= */
+
+.secao-titulo {
+    background: #e8eef5;
+
+    color: #003b70;
+
+    padding: 8px 12px;
+
+    font-weight: bold;
+
+    font-size: 17px;
+
+    display: flex;
+
+    justify-content: flex-start;
+
+    align-items: center;
+
+    gap: 10px;
+}
+
+
+/* =========================================================
+   BOTÃO COPIAR
+========================================================= */
+
+.btn-copiar-secao {
+    background: #0056a6;
+
+    color: white;
+
+    border: none;
+
+    padding: 4px 10px;
+
+    border-radius: 5px;
+
+    cursor: pointer;
+
+    font-size: 11px;
+
+    font-weight: bold;
+}
+
+.btn-copiar-secao:hover {
+    background: #003d75;
+}
+
+
+/* =========================================================
+   BOTÃO COPIAR CAMPO (DENTRO DO EMPRESA-INFO)
+========================================================= */
+
+.btn-copiar-campo {
+    background: #0056a6;
+
+    color: white;
+
+    border: none;
+
+    padding: 2px 8px;
+
+    border-radius: 4px;
+
+    cursor: pointer;
+
+    font-size: 10px;
+
+    font-weight: bold;
+
+    margin-left: 4px;
+
+    vertical-align: middle;
+}
+
+.btn-copiar-campo:hover {
+    background: #003d75;
+}
+
+
+/* =========================================================
+   EDITOR
+========================================================= */
+
+.editor {
+    padding: 20px;
+
+    min-height: 120px;
+
+    line-height: 1.7;
+
+    font-size: 16px;
+
+    outline: none;
+
+    background: white;
+
+    overflow: visible;
+
+    white-space: normal;
+
+    text-overflow: clip;
+}
+
+.editor:focus {
+    box-shadow:
+        inset 0 0 0 2px #0056a6;
+}
+
+#corpoMensagem {
+    min-height: 500px;
+}
+
+
+/* =========================================================
+   MENSAGEM "COPIADO COM SUCESSO"
+========================================================= */
+
+#mensagemCopiado {
+
+    position: fixed;
+
+    right: 25px;
+
+    bottom: 25px;
+
+    background: #007a3d;
+
+    color: white;
+
+    padding: 12px 20px;
+
+    border-radius: 7px;
+
+    font-size: 14px;
+
+    font-weight: bold;
+
+    box-shadow:
+        0 4px 12px rgba(0,0,0,0.25);
+
+    opacity: 0;
+
+    visibility: hidden;
+
+    transform: translateY(15px);
+
+    transition:
+        opacity 0.3s ease,
+        transform 0.3s ease,
+        visibility 0.3s ease;
+
+    z-index: 9999;
+
+}
+
+
+/* =========================================================
+   MENSAGEM VISÍVEL
+========================================================= */
+
+#mensagemCopiado.mostrar {
+
+    opacity: 1;
+
+    visibility: visible;
+
+    transform: translateY(0);
+
+}
+
+
+/* =========================================================
+   RESPONSIVIDADE
+========================================================= */
+
+@media (max-width: 1200px) {
+
+    .grade-cnpjs {
+        grid-template-columns:
+            repeat(5, minmax(0, 1fr));
+    }
+
+}
+
+
+@media (max-width: 700px) {
+
+    .grade-cnpjs {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+
+    #mensagemCopiado {
+        right: 15px;
+        bottom: 15px;
+    }
+
+}
+
+</style>
+
+</head>
+
+<body>
+
+<!-- =========================================================
+     TOPO
+========================================================= -->
+
+<div class="topo">
+
+<h1>
+    Telegramas Econômicas - IBGE
+</h1>
+
+</div>
+
+<div class="container">
+
+<!-- =========================================================
+     IMPORTAÇÃO
+========================================================= -->
+
+<div class="painel-importacao">
+
+<input
+    type="file"
+    id="arquivo"
+    accept=".xlsx,.xls,.csv"
+    onchange="importarPlanilha()"
+>
+
+<div class="linha-importacao">
+
+    <button
+        class="btn btn-importar"
+        onclick="document.getElementById('arquivo').click()"
+    >
+        Importar Planilha
+    </button>
+
+    <div
+        id="status"
+        class="status"
+    ></div>
+
+</div>
+
+</div>
+
+<!-- =========================================================
+     CNPJs
+========================================================= -->
+
+<div
+    id="painelCnpjs"
+    class="painel-cnpjs"
+    style="display:none;"
+>
+
+<h2>
+    CNPJs Importados
+</h2>
+
+<div
+    id="gradeCnpjs"
+    class="grade-cnpjs"
+></div>
+
+<div class="navegacao-cnpjs">
+
+    <button
+        class="btn btn-pagina"
+        onclick="paginaAnterior()"
+    >
+        ← Anterior
+    </button>
+
+    <span id="paginaInfo">
+        Página 1
+    </span>
+
+    <button
+        class="btn btn-pagina"
+        onclick="proximaPagina()"
+    >
+        Próxima →
+    </button>
+
+</div>
+
+</div>
+
+<!-- =========================================================
+     CAMPOS DO TELEGRAMA
+========================================================= -->
+
+<div class="painel-campos">
+
+<h2>
+    Informações Complementares
+</h2>
+
+<div class="campos-telegrama">
+
+    <div class="linha-campo">
+        <label for="campoQuemEnvia">Quem está enviando o telegrama:</label>
+        <input
+            type="text"
+            id="campoQuemEnvia"
+            class="input-medio campo-preenchido"
+            value="Jose Francisco Teixeira Carvalho"
+            oninput="atualizarCorpoQuemEnvia()"
+        >
+    </div>
+
+    <div class="linha-campo">
+        <label for="campoResponsavelColeta">Responsável pelo acompanhamento da coleta:</label>
+        <input
+            type="text"
+            id="campoResponsavelColeta"
+            class="input-medio"
+            oninput="atualizarRodapeAtual()"
+        >
+    </div>
+
+    <div class="linha-campo">
+        <label for="campoAgencia">Agência do IBGE:</label>
+        <input
+            type="text"
+            id="campoAgencia"
+            class="input-medio"
+            oninput="atualizarRodapeAtual()"
+        >
+    </div>
+
+    <div class="linha-campo">
+        <label for="campoTelefone">Telefone da Agência:</label>
+        <input
+            type="tel"
+            id="campoTelefone"
+            class="input-medio"
+            placeholder="(xx) xxxxx-xxxx"
+            inputmode="numeric"
+            maxlength="15"
+            oninput="formatarCampoTelefone(this); atualizarRodapeAtual();"
+        >
+    </div>
+
+    <div class="linha-campo">
+        <label for="campoEmailAgencia">E-mail da agência:</label>
+        <input
+            type="email"
+            id="campoEmailAgencia"
+            class="input-medio"
+            oninput="atualizarRodapeAtual()"
+        >
+    </div>
+
+    <div class="linha-campo">
+        <label for="campoChefeAgencia">Chefe da agência:</label>
+        <input
+            type="text"
+            id="campoChefeAgencia"
+            class="input-medio"
+            oninput="atualizarRodapeAtual()"
+        >
+    </div>
+
+    <div class="linha-campo">
+        <label for="campoAnoAtual">Ano atual:</label>
+        <input
+            type="text"
+            id="campoAnoAtual"
+            class="input-ano campo-preenchido"
+            inputmode="numeric"
+            maxlength="4"
+            value="2026"
+            oninput="formatarCampoAno(this); atualizarCorpoAnos();"
+        >
+    </div>
+
+    <div class="linha-campo">
+        <label for="campoAnoReferencia">Ano referência da pesquisa:</label>
+        <input
+            type="text"
+            id="campoAnoReferencia"
+            class="input-ano campo-preenchido"
+            inputmode="numeric"
+            maxlength="4"
+            value="2025"
+            oninput="formatarCampoAno(this); atualizarCorpoAnos();"
+        >
+    </div>
+
+    <div class="linha-campo">
+        <label for="campoPrazo">O prazo expirou em:</label>
+        <input
+            type="text"
+            id="campoPrazo"
+            class="input-data campo-preenchido"
+            placeholder="xx/xx/xxxx"
+            inputmode="numeric"
+            maxlength="10"
+            value="07/08/2026"
+            oninput="formatarCampoData(this); atualizarCorpoPrazo();"
+            onblur="validarCampoDataAoSair(this)"
+        >
+        <span id="erroPrazo" class="erro-data"></span>
+    </div>
+
+</div>
+
+</div>
+
+<!-- =========================================================
+     OFÍCIO
+========================================================= -->
+
+<div class="painel-oficio">
+
+<h2>
+    Ofício de <i>INADIMPLÊNCIA</i>.
+</h2>
+
+
+<div
+    id="empresaInfo"
+    class="empresa-info"
+>
+    Clique em um CNPJ importado para gerar o ofício.
+</div>
+
+
+<!-- =====================================================
+     CABEÇALHO
+====================================================== -->
+
+<div class="secao">
+
+    <div class="secao-titulo">
+
+        <span>
+            Cabeçalho
+        </span>
+
+        <button
+            class="btn-copiar-secao"
+            onclick="copiarSecao('cabecalho')"
+        >
+            Copiar
+        </button>
+
+    </div>
+
+
+    <div
+        id="cabecalho"
+        class="editor"
+        contenteditable="true"
+    ></div>
+
+</div>
+
+
+<!-- =====================================================
+     CORPO
+====================================================== -->
+
+<div class="secao">
+
+    <div class="secao-titulo">
+
+        <span>
+            Corpo da Mensagem
+        </span>
+
+        <button
+            class="btn-copiar-secao"
+            onclick="copiarSecao('corpoMensagem')"
+        >
+            Copiar
+        </button>
+
+    </div>
+
+
+    <div
+        id="corpoMensagem"
+        class="editor"
+        contenteditable="true"
+    ></div>
+
+</div>
+
+
+<!-- =====================================================
+     RODAPÉ
+====================================================== -->
+
+<div class="secao">
+
+    <div class="secao-titulo">
+
+        <span>
+            Rodapé
+        </span>
+
+        <button
+            class="btn-copiar-secao"
+            onclick="copiarSecao('rodape')"
+        >
+            Copiar
+        </button>
+
+    </div>
+
+
+    <div
+        id="rodape"
+        class="editor"
+        contenteditable="true"
+    ></div>
+
+</div>
+
+</div>
+
+</div>
+
+<!-- =========================================================
+     MENSAGEM DE CÓPIA
+========================================================= -->
+
+<div
+    id="mensagemCopiado"
+>
+    Copiado com sucesso
+</div>
+
+<script>
+
+/* =========================================================
+   VARIÁVEIS
+========================================================= */
+
+let empresas = [];
+
+let indiceAtual = -1;
+
+let paginaAtual = 0;
+
+const CNPJS_POR_PAGINA = 200;
+
+
+/* =========================================================
+   IMPORTAR PLANILHA
+========================================================= */
+
+function importarPlanilha() {
+
+    const arquivoInput =
+        document.getElementById(
+            "arquivo"
+        );
+
+
+    const status =
+        document.getElementById(
+            "status"
+        );
+
+
+    if (
+        !arquivoInput.files.length
+    ) {
+
+        return;
+
+    }
+
+
+    const arquivo =
+        arquivoInput.files[0];
+
+
+    const reader =
+        new FileReader();
+
+
+    reader.onload =
+        function(event) {
+
+            try {
+
+                const dados =
+                    new Uint8Array(
+                        event.target.result
+                    );
+
+
+                const workbook =
+                    XLSX.read(
+                        dados,
+                        {
+                            type: "array"
+                        }
+                    );
+
+
+                const primeiraAba =
+                    workbook.SheetNames[0];
+
+
+                const worksheet =
+                    workbook.Sheets[
+                        primeiraAba
+                    ];
+
+
+                const json =
+                    XLSX.utils.sheet_to_json(
+                        worksheet,
+                        {
+                            defval: "",
+                            raw: false
+                        }
+                    );
+
+
+                if (
+                    !json.length
+                ) {
+
+                    alert(
+                        "A planilha não possui dados."
+                    );
+
+                    return;
+
+                }
+
+
+                empresas =
+                    json.map(
+                        function(
+                            linha,
+                            indice
+                        ) {
+
+                            return {
+
+                                indice:
+                                    indice,
+
+                                dados:
+                                    linha,
+
+                                ano:
+                                    buscarCampo(
+                                        linha,
+                                        ["Ano"]
+                                    ),
+
+                                cnpj:
+                                    buscarCampo(
+                                        linha,
+                                        ["CNPJ"]
+                                    ),
+
+                                razaoSocial:
+                                    buscarCampo(
+                                        linha,
+                                        ["Razão Social"]
+                                    ),
+
+                                nomeFantasia:
+                                    buscarCampo(
+                                        linha,
+                                        ["Nome Fantasia"]
+                                    ),
+
+                                agencia:
+                                    buscarCampo(
+                                        linha,
+                                        ["Agência"]
+                                    ),
+
+                                uf:
+                                    buscarCampo(
+                                        linha,
+                                        ["UF"]
+                                    ),
+
+                                municipio:
+                                    buscarCampo(
+                                        linha,
+                                        ["Municipio"]
+                                    ),
+
+                                localidade:
+                                    buscarCampo(
+                                        linha,
+                                        ["Localidade"]
+                                    ),
+
+                                pesquisa:
+                                    buscarCampo(
+                                        linha,
+                                        ["Pesquisa"]
+                                    ),
+
+                                cep:
+                                    buscarCampo(
+                                        linha,
+                                        ["CEP da UC"]
+                                    ),
+
+                                bairro:
+                                    buscarCampo(
+                                        linha,
+                                        ["Bairro da UC"]
+                                    ),
+
+                                endereco:
+                                    buscarCampo(
+                                        linha,
+                                        ["Endereço da UC"]
+                                    ),
+
+                                nomeContato:
+                                    buscarCampo(
+                                        linha,
+                                        ["Nome do Contato"]
+                                    ),
+
+                                telefoneContato:
+                                    buscarCampo(
+                                        linha,
+                                        ["Telefone do Contato"]
+                                    ),
+
+                                emailContato:
+                                    buscarCampo(
+                                        linha,
+                                        ["E-mail do Contato"]
+                                    ),
+
+                                responsavelColeta:
+                                    buscarCampo(
+                                        linha,
+                                        [
+                                            "Responsável pelo acompanhamento da coleta"
+                                        ]
+                                    ),
+
+                                responsavelAbordagem:
+                                    buscarCampo(
+                                        linha,
+                                        [
+                                            "Responsável da Abordagem",
+                                            "Responsável pela Abordagem"
+                                        ]
+                                    )
+
+                            };
+
+                        }
+                    );
+
+
+                empresas =
+                    empresas.filter(
+                        function(
+                            empresa
+                        ) {
+
+                            return String(
+                                empresa.cnpj
+                            ).trim() !== "";
+
+                        }
+                    );
+
+
+                if (
+                    !empresas.length
+                ) {
+
+                    alert(
+                        "Nenhum CNPJ foi encontrado na coluna CNPJ."
+                    );
+
+                    return;
+
+                }
+
+
+                status.innerHTML =
+
+                    "<strong>" +
+
+                    empresas.length +
+
+                    "</strong> CNPJ(s) importado(s) com sucesso.";
+
+
+                document
+                    .getElementById(
+                        "painelCnpjs"
+                    )
+                    .style.display =
+                    "block";
+
+
+                paginaAtual = 0;
+
+                indiceAtual = -1;
+
+
+                renderizarGradeCnpjs();
+
+            }
+
+            catch (
+                erro
+            ) {
+
+                console.error(
+                    erro
+                );
+
+
+                alert(
+                    "Erro ao importar a planilha: " +
+                    erro.message
+                );
+
+            }
+
+        };
+
+
+    reader.readAsArrayBuffer(
+        arquivo
+    );
+
+}
+
+
+/* =========================================================
+   BUSCAR CAMPO
+========================================================= */
+
+function buscarCampo(
+    linha,
+    nomesPossiveis
+) {
+
+    const colunas =
+        Object.keys(
+            linha
+        );
+
+
+    for (
+        const nome of nomesPossiveis
+    ) {
+
+        const colunaEncontrada =
+            colunas.find(
+                function(
+                    coluna
+                ) {
+
+                    return (
+
+                        normalizarTexto(
+                            coluna
+                        )
+
+                        ===
+
+                        normalizarTexto(
+                            nome
+                        )
+
+                    );
+
+                }
+            );
+
+
+        if (
+            colunaEncontrada !== undefined
+        ) {
+
+            return String(
+                linha[
+                    colunaEncontrada
+                ] ?? ""
+            ).trim();
+
+        }
+
+    }
+
+
+    return "";
+
+}
+
+
+/* =========================================================
+   NORMALIZAR TEXTO
+========================================================= */
+
+function normalizarTexto(
+    texto
+) {
+
+    return String(
+        texto || ""
+    )
+
+    .normalize(
+        "NFD"
+    )
+
+    .replace(
+        /[\u0300-\u036f]/g,
+        ""
+    )
+
+    .replace(
+        /\s+/g,
+        " "
+    )
+
+    .trim()
+
+    .toUpperCase();
+
+}
+
+
+/* =========================================================
+   PESQUISA
+========================================================= */
+
+function nomeCompletoPesquisa(
+    pesquisa
+) {
+
+    const valor =
+        String(
+            pesquisa || ""
+        ).trim();
+
+
+    const codigo =
+        normalizarTexto(
+            valor
+        );
+
+
+    if (
+        codigo === "PAS" ||
+        codigo.includes("PAS")
+    ) {
+
+        return "Pesquisa Anual de Serviços - PAS";
+
+    }
+
+
+    if (
+        codigo === "PAC" ||
+        codigo.includes("PAC")
+    ) {
+
+        return "Pesquisa Anual de Comércio - PAC";
+
+    }
+
+
+    if (
+        codigo === "PAIC" ||
+        codigo.includes("PAIC")
+    ) {
+
+        return "Pesquisa Anual da Indústria da Construção - PAIC";
+
+    }
+
+
+    if (
+        codigo === "PIA-EMPRESA" ||
+        codigo === "PIA EMPRESA" ||
+        codigo.includes("PIA-EMPRESA") ||
+        codigo.includes("PIA EMPRESA")
+    ) {
+
+        return "Pesquisa Industrial Anual - Empresa - PIA-Empresa";
+
+    }
+
+
+    if (
+        codigo === "PIA-PRODUTO" ||
+        codigo === "PIA PRODUTO" ||
+        codigo.includes("PIA-PRODUTO") ||
+        codigo.includes("PIA PRODUTO")
+    ) {
+
+        return "Pesquisa Industrial Anual - Produto - PIA-Produto";
+
+    }
+
+
+    if (
+        codigo === "PIA" ||
+        codigo.includes("PIA")
+    ) {
+
+        return "Pesquisa Industrial Anual - PIA";
+
+    }
+
+
+    return valor;
+
+}
+
+
+/* =========================================================
+   RENDERIZAR GRADE
+========================================================= */
+
+function renderizarGradeCnpjs() {
+
+    const grade =
+        document.getElementById(
+            "gradeCnpjs"
+        );
+
+
+    grade.innerHTML = "";
+
+
+    const inicio =
+        paginaAtual *
+        CNPJS_POR_PAGINA;
+
+
+    const fim =
+        Math.min(
+            inicio +
+            CNPJS_POR_PAGINA,
+            empresas.length
+        );
+
+
+    for (
+        let indice = inicio;
+        indice < fim;
+        indice++
+    ) {
+
+        const empresa =
+            empresas[indice];
+
+
+        const item =
+            document.createElement(
+                "div"
+            );
+
+
+        item.className =
+            "cnpj-item";
+
+
+        if (
+            indice === indiceAtual
+        ) {
+
+            item.classList.add(
+                "ativo"
+            );
+
+        }
+
+
+        item.textContent =
+            formatarCNPJ(
+                empresa.cnpj
+            );
+
+
+        item.title =
+            empresa.razaoSocial
+                ? empresa.razaoSocial
+                : "Clique para selecionar";
+
+
+        item.onclick =
+            function() {
+
+                selecionarEmpresa(
+                    indice
+                );
+
+            };
+
+
+        grade.appendChild(
+            item
+        );
+
+    }
+
+
+    const totalPaginas =
+        Math.ceil(
+            empresas.length /
+            CNPJS_POR_PAGINA
+        );
+
+
+    document
+        .getElementById(
+            "paginaInfo"
+        )
+        .textContent =
+
+        "Página " +
+
+        (paginaAtual + 1) +
+
+        " de " +
+
+        totalPaginas;
+
+}
+
+
+/* =========================================================
+   SELECIONAR EMPRESA
+========================================================= */
+
+function selecionarEmpresa(
+    indice
+) {
+
+    indiceAtual =
+        indice;
+
+
+    const empresa =
+        empresas[
+            indiceAtual
+        ];
+
+
+    renderizarGradeCnpjs();
+
+
+    preencherOficio(
+        empresa
+    );
+
+
+    document
+        .querySelector(
+            ".painel-oficio"
+        )
+        .scrollIntoView(
+            {
+                behavior: "smooth",
+                block: "start"
+            }
+        );
+
+}
+
+
+/* =========================================================
+   PREENCHER OFÍCIO
+========================================================= */
+
+function preencherOficio(
+    empresa
+) {
+
+    const pesquisaCompleta =
+        nomeCompletoPesquisa(
+            empresa.pesquisa
+        );
+
+
+    /* =====================================================
+       PREENCHIMENTO AUTOMÁTICO DOS CAMPOS EDITÁVEIS
+       (Agência / Responsável pelo acompanhamento da coleta)
+    ====================================================== */
+
+    document
+        .getElementById(
+            "campoAgencia"
+        )
+        .value =
+        empresa.agencia || "";
+
+    document
+        .getElementById(
+            "campoResponsavelColeta"
+        )
+        .value =
+        empresa.responsavelAbordagem || "";
+
+
+    /* =====================================================
+       QUADRO OFÍCIO
+    ====================================================== */
+
+    document
+        .getElementById(
+            "empresaInfo"
+        )
+        .innerHTML =
+
+        "<strong>Razão Social:</strong> " +
+
+        "<span id=\"valorRazaoSocial\">" +
+        escaparHtml(
+            empresa.razaoSocial
+        ) +
+        "</span>" +
+
+        " <button class=\"btn-copiar-campo\" onclick=\"copiarValor('valorRazaoSocial')\">Copiar</button>" +
+
+        " &nbsp;&nbsp;-&nbsp;&nbsp; " +
+
+        "<strong>CNPJ:</strong> " +
+
+        "<span id=\"valorCnpj\">" +
+        formatarCNPJ(
+            empresa.cnpj
+        ) +
+        "</span>" +
+
+        " <button class=\"btn-copiar-campo\" onclick=\"copiarValor('valorCnpj')\">Copiar</button>" +
+
+        "<br>" +
+
+        "<strong>Endereço:</strong> " +
+
+        "<span id=\"valorEndereco\">" +
+        escaparHtml(
+            empresa.endereco
+        ) +
+        "</span>" +
+
+        " <button class=\"btn-copiar-campo\" onclick=\"copiarValor('valorEndereco')\">Copiar</button>" +
+
+        " &nbsp;&nbsp;-&nbsp;&nbsp; " +
+
+        "<strong>CEP:</strong> " +
+
+        "<span id=\"valorCep\">" +
+        formatarCEP(
+            empresa.cep
+        ) +
+        "</span>" +
+
+        " <button class=\"btn-copiar-campo\" onclick=\"copiarValor('valorCep')\">Copiar</button>" +
+
+        "<br>" +
+
+        "<strong>Pesquisa:</strong> " +
+
+        escaparHtml(
+            pesquisaCompleta
+        ) +
+
+        "<br>" +
+
+        "<strong>Contato:</strong> " +
+
+        "<span id=\"valorContato\">" +
+        escaparHtml(
+            empresa.nomeContato
+        ) +
+        "</span>" +
+
+        " <button class=\"btn-copiar-campo\" onclick=\"copiarValor('valorContato')\">Copiar</button>";
+
+
+    /* =====================================================
+       CABEÇALHO
+    ====================================================== */
+
+    document
+        .getElementById(
+            "cabecalho"
+        )
+        .innerHTML =
+
+        "À Empresa " +
+
+        escaparHtml(
+            empresa.razaoSocial
+        ) +
+
+        " - CNPJ " +
+
+        formatarCNPJ(
+            empresa.cnpj
+        ) +
+
+        "<br>" +
+
+        escaparHtml(
+            empresa.endereco
+        ) +
+
+        " - " +
+
+        escaparHtml(
+            empresa.bairro
+        ) +
+
+        ", " +
+
+        escaparHtml(
+            empresa.municipio
+        ) +
+
+        " - " +
+
+        escaparHtml(
+            empresa.uf
+        ) +
+
+        ", CEP " +
+
+        formatarCEP(
+            empresa.cep
+        ) +
+
+        "<br>" +
+
+        "Senhor(a) " +
+
+        escaparHtml(
+            empresa.nomeContato
+        );
+
+
+    /* =====================================================
+       CORPO
+    ====================================================== */
+
+    document
+        .getElementById(
+            "corpoMensagem"
+        )
+        .innerHTML =
+
+        "<strong>" +
+
+        "Assunto: Inadimplência com o Governo Federal." +
+
+        "</strong>" +
+
+        "<br><br>" +
+
+        "A Fundação Instituto Brasileiro de Geografia e Estatística - IBGE está concluindo a coleta de informações prevista no Programa Anual de Pesquisas por Empresa de " +
+
+        "<span id=\"corpoAnoAtualValor\">" +
+        escaparHtml(
+            document.getElementById("campoAnoAtual").value
+        ) +
+        "</span>" +
+
+        ", com referência ao ano-calendário de " +
+
+        "<span id=\"corpoAnoReferenciaValor\">" +
+        escaparHtml(
+            document.getElementById("campoAnoReferencia").value
+        ) +
+        "</span>" +
+
+        "." +
+
+        "<br><br>" +
+
+        "O prazo informado anteriormente à empresa, para o envio das informações, expirou em " +
+
+        "<span id=\"corpoPrazoValor\">" +
+        escaparHtml(
+            textoPrazoParaCorpo()
+        ) +
+        "</span>" +
+
+        ". Dado que não foi identificada a remessa do questionário em nosso Sistema, a empresa " +
+
+        escaparHtml(
+            empresa.razaoSocial
+        ) +
+
+        " - CNPJ " +
+
+        formatarCNPJ(
+            empresa.cnpj
+        ) +
+
+        " está sendo notificada de sua condição de inadimplência junto ao IBGE, a partir desta data." +
+
+        "<br><br>" +
+
+        "Ratifica-se que a legislação que ampara a atuação do IBGE tornou obrigatória a prestação de informações para fins de pesquisas, considerando a relevância de um sistema oficial de estatísticas sobre o Brasil:" +
+
+        "<br>" +
+
+        "Decreto-lei n.º 161, de 13 de fevereiro de 1967, Art. 2º e seu §2º;" +
+
+        "<br>" +
+
+        "Lei nº 5.534, de 14 de novembro de 1968, Art. 1º e Art. 2º;" +
+
+        "<br>" +
+
+        "Lei nº 5.878, de 11 de maio de 1973, Art. 6º." +
+
+        "<br><br>" +
+
+        "Faz-se necessário enfatizar o aspecto legal, pois a inadimplência implica, entre outras penalidades previstas, na inviabilidade de fornecimento por parte do IBGE da certidão de quitação das obrigações com a Instituição, na hipótese de a empresa necessitar. Instituições públicas podem requerer da empresa a apresentação desta certidão, como parte da documentação necessária para a participação em licitações e/ou ter acesso a incentivos públicos." +
+
+        "<br><br>" +
+
+        "Ressalta-se o compromisso do IBGE de resguardar a confidencialidade dos dados fornecidos, que serão usados exclusivamente para fins estatísticos." +
+
+        "<br><br>" +
+
+        "Caso sua empresa já tenha regularizado a situação com o IBGE e respondido a pesquisa, por favor desconsidere esta notificação." +
+
+        "<br>&nbsp;<br>&nbsp;<br>" +
+
+        "Atenciosamente," +
+
+        "<br><br>" +
+
+        "<span id=\"corpoQuemEnviaValor\">" +
+        escaparHtml(
+            document.getElementById("campoQuemEnvia").value
+        ) +
+        "</span>" +
+
+        "<br>" +
+
+        "Chefe da Unidade Estadual Rio de Janeiro";
+
+
+    /* =====================================================
+       RODAPÉ
+    ====================================================== */
+
+    document
+        .getElementById(
+            "rodape"
+        )
+        .innerHTML =
+        gerarTextoRodape();
+
+}
+
+
+/* =========================================================
+   GERAR TEXTO DO RODAPÉ (A PARTIR DOS CAMPOS EDITÁVEIS)
+========================================================= */
+
+function gerarTextoRodape() {
+
+    const emailAgencia =
+        document.getElementById("campoEmailAgencia").value.trim();
+
+    const textoEmail =
+        emailAgencia
+            ? " / " + escaparHtml(emailAgencia)
+            : "";
+
+    return (
+
+        "Em caso de dúvida, entre em contato: Responsável pelo acompanhamento da coleta: " +
+
+        escaparHtml(
+            document.getElementById("campoResponsavelColeta").value
+        ) +
+
+        " - Agência " +
+
+        escaparHtml(
+            document.getElementById("campoAgencia").value
+        ) +
+
+        ", Rio de Janeiro-RJ - " +
+
+        escaparHtml(
+            document.getElementById("campoTelefone").value
+        ) +
+
+        textoEmail +
+
+        "<br><br>" +
+
+        "Chefe da agência: " +
+
+        escaparHtml(
+            document.getElementById("campoChefeAgencia").value
+        ) +
+
+        "." +
+
+        "<br>&nbsp;"
+
+    );
+
+}
+
+
+/* =========================================================
+   ATUALIZAR RODAPÉ COM OS CAMPOS EDITÁVEIS
+========================================================= */
+
+function atualizarRodapeAtual() {
+
+    if (
+        indiceAtual < 0 ||
+        !empresas[indiceAtual]
+    ) {
+
+        return;
+
+    }
+
+    document
+        .getElementById(
+            "rodape"
+        )
+        .innerHTML =
+        gerarTextoRodape();
+
+}
+
+
+/* =========================================================
+   FORMATAR CAMPO DE TELEFONE (SOMENTE NÚMEROS)
+========================================================= */
+
+function formatarCampoTelefone(
+    campo
+) {
+
+    let numeros =
+        campo.value
+            .replace(/\D/g, "")
+            .slice(0, 11);
+
+    let resultado = "";
+
+    if (numeros.length > 0) {
+
+        resultado =
+            "(" + numeros.slice(0, 2);
+
+    }
+
+    if (numeros.length >= 2) {
+
+        resultado += ") ";
+
+    }
+
+    if (numeros.length <= 10) {
+
+        resultado +=
+            numeros.slice(2, 6);
+
+        if (numeros.length > 6) {
+
+            resultado +=
+                "-" + numeros.slice(6, 10);
+
+        }
+
+    } else {
+
+        resultado +=
+            numeros.slice(2, 7);
+
+        if (numeros.length > 7) {
+
+            resultado +=
+                "-" + numeros.slice(7, 11);
+
+        }
+
+    }
+
+    campo.value = resultado;
+
+}
+
+
+/* =========================================================
+   FORMATAR CAMPO DE ANO (SOMENTE 4 DÍGITOS NUMÉRICOS)
+========================================================= */
+
+function formatarCampoAno(
+    campo
+) {
+
+    campo.value =
+        campo.value
+            .replace(/\D/g, "")
+            .slice(0, 4);
+
+}
+
+
+/* =========================================================
+   CAMPO DE DATA (SOMENTE NÚMEROS, MÁSCARA dd/mm/aaaa)
+========================================================= */
+
+function formatarCampoData(
+    campo
+) {
+
+    const numeros =
+        campo.value
+            .replace(/\D/g, "")
+            .slice(0, 8);
+
+    let resultado = numeros.slice(0, 2);
+
+    if (numeros.length > 2) {
+
+        resultado += "/" + numeros.slice(2, 4);
+
+    }
+
+    if (numeros.length > 4) {
+
+        resultado += "/" + numeros.slice(4, 8);
+
+    }
+
+    campo.value = resultado;
+
+}
+
+
+function dataValida(
+    texto
+) {
+
+    const partes =
+        /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(texto);
+
+    if (!partes) {
+
+        return false;
+
+    }
+
+    const dia = parseInt(partes[1], 10);
+    const mes = parseInt(partes[2], 10);
+    const ano = parseInt(partes[3], 10);
+
+    if (ano < 1900 || ano > 2100) {
+
+        return false;
+
+    }
+
+    const data = new Date(ano, mes - 1, dia);
+
+    return (
+        data.getFullYear() === ano &&
+        data.getMonth() === mes - 1 &&
+        data.getDate() === dia
+    );
+
+}
+
+
+function textoPrazoParaCorpo() {
+
+    const valor =
+        document.getElementById("campoPrazo").value;
+
+    return dataValida(valor)
+        ? valor
+        : "xx/xx/xxxx";
+
+}
+
+
+function atualizarCorpoPrazo() {
+
+    const campo =
+        document.getElementById("campoPrazo");
+
+    const erro =
+        document.getElementById("erroPrazo");
+
+    const valor = campo.value;
+
+    if (valor.length === 10 && !dataValida(valor)) {
+
+        campo.classList.add("invalido");
+
+        erro.textContent = "Data inválida.";
+
+    }
+
+    else {
+
+        campo.classList.remove("invalido");
+
+        erro.textContent = "";
+
+    }
+
+    const span =
+        document.getElementById("corpoPrazoValor");
+
+    if (span) {
+
+        span.textContent = textoPrazoParaCorpo();
+
+    }
+
+}
+
+
+function validarCampoDataAoSair(
+    campo
+) {
+
+    if (campo.value !== "" && !dataValida(campo.value)) {
+
+        const erro =
+            document.getElementById("erroPrazo");
+
+        campo.classList.add("invalido");
+
+        erro.textContent =
+            "Data inválida. Use o formato dd/mm/aaaa.";
+
+        campo.value = "";
+
+        atualizarCorpoPrazo();
+
+        campo.classList.add("invalido");
+
+        erro.textContent =
+            "Data inválida. Use o formato dd/mm/aaaa.";
+
+    }
+
+}
+
+
+/* =========================================================
+   ATUALIZAR "QUEM ENVIA" NO CORPO DA MENSAGEM
+========================================================= */
+
+function atualizarCorpoQuemEnvia() {
+
+    const campoValor =
+        document.getElementById(
+            "corpoQuemEnviaValor"
+        );
+
+    if (
+        !campoValor
+    ) {
+
+        return;
+
+    }
+
+    campoValor.textContent =
+        document.getElementById(
+            "campoQuemEnvia"
+        ).value;
+
+}
+
+
+/* =========================================================
+   ATUALIZAR ANOS NO CORPO DA MENSAGEM
+========================================================= */
+
+function atualizarCorpoAnos() {
+
+    const campoAnoAtualValor =
+        document.getElementById(
+            "corpoAnoAtualValor"
+        );
+
+    const campoAnoReferenciaValor =
+        document.getElementById(
+            "corpoAnoReferenciaValor"
+        );
+
+    if (
+        campoAnoAtualValor
+    ) {
+
+        campoAnoAtualValor.textContent =
+            document.getElementById(
+                "campoAnoAtual"
+            ).value;
+
+    }
+
+    if (
+        campoAnoReferenciaValor
+    ) {
+
+        campoAnoReferenciaValor.textContent =
+            document.getElementById(
+                "campoAnoReferencia"
+            ).value;
+
+    }
+
+}
+
+
+/* =========================================================
+   COPIAR VALOR DE UM CAMPO ESPECÍFICO
+========================================================= */
+
+function copiarValor(
+    id
+) {
+
+    const elemento =
+        document.getElementById(
+            id
+        );
+
+
+    if (
+        !elemento ||
+        !elemento.textContent.trim()
+    ) {
+
+        mostrarMensagemCopiado(
+            "Não há conteúdo para copiar."
+        );
+
+        return;
+
+    }
+
+
+    copiarTexto(
+        elemento.textContent
+    );
+
+}
+
+
+/* =========================================================
+   COPIAR SEÇÃO
+========================================================= */
+
+function copiarSecao(
+    id
+) {
+
+    const elemento =
+        document.getElementById(
+            id
+        );
+
+
+    if (
+        !elemento ||
+        !elemento.innerText.trim()
+    ) {
+
+        mostrarMensagemCopiado(
+            "Não há conteúdo para copiar."
+        );
+
+        return;
+
+    }
+
+
+    copiarTexto(
+        elemento.innerText
+    );
+
+}
+
+
+/* =========================================================
+   COPIAR TEXTO
+========================================================= */
+
+function copiarTexto(
+    texto
+) {
+
+    if (
+        navigator.clipboard &&
+        navigator.clipboard.writeText
+    ) {
+
+        navigator.clipboard
+            .writeText(
+                texto
+            )
+            .then(
+                function() {
+
+                    mostrarMensagemCopiado(
+                        "Copiado com sucesso"
+                    );
+
+                }
+            )
+            .catch(
+                function() {
+
+                    copiarAlternativo(
+                        texto
+                    );
+
+                }
+            );
+
+    }
+
+    else {
+
+        copiarAlternativo(
+            texto
+        );
+
+    }
+
+}
+
+
+/* =========================================================
+   CÓPIA ALTERNATIVA
+========================================================= */
+
+function copiarAlternativo(
+    texto
+) {
+
+    const textarea =
+        document.createElement(
+            "textarea"
+        );
+
+
+    textarea.value =
+        texto;
+
+
+    textarea.style.position =
+        "fixed";
+
+
+    textarea.style.left =
+        "-9999px";
+
+
+    textarea.style.top =
+        "0";
+
+
+    document.body.appendChild(
+        textarea
+    );
+
+
+    textarea.focus();
+
+    textarea.select();
+
+
+    try {
+
+        document.execCommand(
+            "copy"
+        );
+
+
+        mostrarMensagemCopiado(
+            "Copiado com sucesso"
+        );
+
+    }
+
+    catch (
+        erro
+    ) {
+
+        mostrarMensagemCopiado(
+            "Não foi possível copiar."
+        );
+
+    }
+
+
+    document.body.removeChild(
+        textarea
+    );
+
+}
+
+
+/* =========================================================
+   MOSTRAR MENSAGEM
+========================================================= */
+
+let temporizadorMensagem;
+
+
+function mostrarMensagemCopiado(
+    texto
+) {
+
+    const mensagem =
+        document.getElementById(
+            "mensagemCopiado"
+        );
+
+
+    mensagem.textContent =
+        texto;
+
+
+    mensagem.classList.add(
+        "mostrar"
+    );
+
+
+    clearTimeout(
+        temporizadorMensagem
+    );
+
+
+    temporizadorMensagem =
+        setTimeout(
+            function() {
+
+                mensagem.classList.remove(
+                    "mostrar"
+                );
+
+            },
+            2200
+        );
+
+}
+
+
+/* =========================================================
+   PÁGINA ANTERIOR
+========================================================= */
+
+function paginaAnterior() {
+
+    if (
+        paginaAtual > 0
+    ) {
+
+        paginaAtual--;
+
+        renderizarGradeCnpjs();
+
+    }
+
+}
+
+
+/* =========================================================
+   PRÓXIMA PÁGINA
+========================================================= */
+
+function proximaPagina() {
+
+    const totalPaginas =
+        Math.ceil(
+            empresas.length /
+            CNPJS_POR_PAGINA
+        );
+
+
+    if (
+        paginaAtual <
+        totalPaginas - 1
+    ) {
+
+        paginaAtual++;
+
+        renderizarGradeCnpjs();
+
+    }
+
+}
+
+
+/* =========================================================
+   FORMATAR CNPJ
+========================================================= */
+
+function formatarCNPJ(
+    cnpj
+) {
+
+    const numeros =
+        String(
+            cnpj || ""
+        )
+        .replace(
+            /\D/g,
+            ""
+        );
+
+
+    if (
+        numeros.length !== 14
+    ) {
+
+        return cnpj || "";
+
+    }
+
+
+    return numeros.replace(
+        /^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,
+        "$1.$2.$3/$4-$5"
+    );
+
+}
+
+
+/* =========================================================
+   FORMATAR CEP
+========================================================= */
+
+function formatarCEP(
+    cep
+) {
+
+    const numeros =
+        String(
+            cep || ""
+        )
+        .replace(
+            /\D/g,
+            ""
+        );
+
+
+    if (
+        numeros.length !== 8
+    ) {
+
+        return cep || "";
+
+    }
+
+
+    return numeros.replace(
+        /^(\d{5})(\d{3})$/,
+        "$1-$2"
+    );
+
+}
+
+
+/* =========================================================
+   ESCAPAR HTML
+========================================================= */
+
+function escaparHtml(
+    texto
+) {
+
+    return String(
+        texto || ""
+    )
+
+    .replace(
+        /&/g,
+        "&amp;"
+    )
+
+    .replace(
+        /</g,
+        "&lt;"
+    )
+
+    .replace(
+        />/g,
+        "&gt;"
+    )
+
+    .replace(
+        /"/g,
+        "&quot;"
+    )
+
+    .replace(
+        /'/g,
+        "&#039;"
+    );
+
+}
+
+</script>
+
+</body>
+</html>

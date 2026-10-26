@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acesso ao Sistema</title>
+    <!-- SDK Oficial do Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-image: url('inicial.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .login-card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            width: 320px;
+        }
+        .login-card h2 {
+            margin-bottom: 20px;
+            color: #333;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 12px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 4px;
+            color: #666;
+            font-size: 14px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .btn-submit {
+            width: 100%;
+            padding: 10px;
+            background-color: #007bff;
+            border: none;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        .btn-submit:hover {
+            background-color: #0056b3;
+        }
+        .btn-submit:disabled {
+            opacity: 0.7;
+            cursor: default;
+        }
+        .links {
+            margin-top: 15px;
+            text-align: center;
+            font-size: 13px;
+        }
+        .links a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        .links a:hover {
+            text-decoration: underline;
+        }
+        .msg {
+            font-size: 13px;
+            margin-top: 10px;
+            text-align: center;
+            display: none;
+        }
+        .msg-erro { color: #d9534f; }
+        .msg-sucesso { color: #28a745; }
+        .msg-aviso { color: #b7791f; }
+        .form-section { display: none; }
+        .form-section.active { display: block; }
+    </style>
+</head>
+<body>
+
+<div class="login-card">
+
+    <!-- FORMULÁRIO DE LOGIN -->
+    <div id="sec-login" class="form-section active">
+        <h2>Login</h2>
+        <form onsubmit="fazerLogin(event)">
+            <div class="form-group">
+                <label for="email">E-mail</label>
+                <input type="email" id="email" required>
+            </div>
+            <div class="form-group">
+                <label for="senha">Palavra-passe</label>
+                <input type="password" id="senha" required>
+            </div>
+            <button type="submit" id="btn-login" class="btn-submit">Entrar</button>
+            <div id="msg-login" class="msg"></div>
+        </form>
+        <div class="links">
+            <a href="#" onclick="mostrarSessao('sec-registro')">Criar conta / Criar senha</a>
+        </div>
+    </div>
+
+    <!-- FORMULÁRIO DE REGISTO -->
+    <div id="sec-registro" class="form-section">
+        <h2>Criar Conta</h2>
+        <form onsubmit="cadastrarUsuario(event)">
+            <div class="form-group">
+                <label for="reg-email">Seu E-mail</label>
+                <input type="email" id="reg-email" required>
+            </div>
+            <div class="form-group">
+                <label for="reg-senha">Crie uma Palavra-passe</label>
+                <input type="password" id="reg-senha" minlength="6" required>
+            </div>
+            <button type="submit" id="btn-registro" class="btn-submit">Cadastrar</button>
+            <div id="msg-reg" class="msg"></div>
+        </form>
+        <div class="links">
+            <a href="#" onclick="mostrarSessao('sec-login')">Voltar ao Login</a>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // =========================================================================
+    // CONFIGURAÇÃO DO SUPABASE
+    // =========================================================================
+    const SUPABASE_URL = 'https://jvjfpxrknggeodjgamyu.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_yxHF_N1gjdGoHMEoM5GF2w_QVMzzMF0';
+
+    const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Alternar entre telas
+    function mostrarSessao(idSessao) {
+        document.querySelectorAll('.form-section').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.msg').forEach(el => el.style.display = 'none');
+        document.getElementById(idSessao).classList.add('active');
+    }
+
+    // Mostrar mensagem (tipo: 'erro' | 'sucesso' | 'aviso')
+    function mostrarMsg(el, tipo, texto) {
+        el.className = 'msg msg-' + tipo;
+        el.innerText = texto;
+        el.style.display = 'block';
+    }
+
+    // Consulta na tabela "perfis" se a conta foi aprovada pelo administrador.
+    // Retorna true (aprovada), false (pendente) ou null (erro na consulta).
+    async function contaAprovada(userId) {
+        const { data, error } = await _supabase
+            .from('perfis')
+            .select('aprovado')
+            .eq('id', userId)
+            .maybeSingle();
+        if (error) return null;
+        return data ? data.aprovado === true : false;
+    }
+
+    // Se já existe sessão de uma conta aprovada, segue direto para o painel
+    (async function verificarSessaoExistente() {
+        const { data: { session } } = await _supabase.auth.getSession();
+        if (session && (await contaAprovada(session.user.id)) === true) {
+            window.location.replace('painel.html');
+        }
+    })();
+
+    // Criação de conta pelo próprio utilizador (fica pendente até ser aprovada)
+    async function cadastrarUsuario(event) {
+        event.preventDefault();
+        const email = document.getElementById('reg-email').value.trim();
+        const password = document.getElementById('reg-senha').value;
+        const msg = document.getElementById('msg-reg');
+        const btn = document.getElementById('btn-registro');
+
+        btn.disabled = true;
+        btn.innerText = 'A processar...';
+        msg.style.display = 'none';
+
+        const { data, error } = await _supabase.auth.signUp({ email, password });
+
+        if (error) {
+            mostrarMsg(msg, 'erro', 'Erro ao cadastrar: ' + error.message);
+        } else {
+            // Se o Supabase abriu sessão automaticamente, encerra: a conta ainda não foi aprovada
+            if (data.session) await _supabase.auth.signOut();
+
+            const textoConfirmar = data.session
+                ? ''
+                : ' Confirme também o seu e-mail, se receber uma mensagem de confirmação.';
+            mostrarMsg(msg, 'sucesso',
+                'Conta criada! Aguarde a aprovação do administrador para aceder.' + textoConfirmar);
+            document.getElementById('reg-email').value = '';
+            document.getElementById('reg-senha').value = '';
+        }
+
+        btn.disabled = false;
+        btn.innerText = 'Cadastrar';
+    }
+
+    // Login: só entra no painel quem tiver a conta aprovada
+    async function fazerLogin(event) {
+        event.preventDefault();
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('senha').value;
+        const msg = document.getElementById('msg-login');
+        const btn = document.getElementById('btn-login');
+
+        btn.disabled = true;
+        btn.innerText = 'A verificar...';
+        msg.style.display = 'none';
+
+        const { data, error } = await _supabase.auth.signInWithPassword({ email, password });
+
+        if (error) {
+            if (/not confirmed/i.test(error.message)) {
+                mostrarMsg(msg, 'aviso', 'Confirme o seu e-mail antes de entrar.');
+            } else {
+                mostrarMsg(msg, 'erro', 'E-mail ou palavra-passe incorretos.');
+            }
+        } else {
+            const aprovada = await contaAprovada(data.user.id);
+
+            if (aprovada === true) {
+                window.location.href = 'painel.html';
+                return;
+            }
+
+            await _supabase.auth.signOut();
+            if (aprovada === false) {
+                mostrarMsg(msg, 'aviso', 'A sua conta está pendente de aprovação pelo administrador.');
+            } else {
+                mostrarMsg(msg, 'erro', 'Não foi possível verificar a sua conta. Tente novamente.');
+            }
+        }
+
+        btn.disabled = false;
+        btn.innerText = 'Entrar';
+    }
+</script>
+
+</body>
+</html>
